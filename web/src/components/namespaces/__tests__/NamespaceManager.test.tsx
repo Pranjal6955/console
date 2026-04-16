@@ -13,6 +13,9 @@ import { BrowserRouter } from 'react-router-dom'
 // Static import removed to support vi.resetModules() for cache clearing
 // import { NamespaceManager } from '../NamespaceManager'
 
+const UI_TIMEOUT_MS = 2000
+const API_TIMEOUT_MS = 3000
+
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
 const mockUseClusters = vi.fn()
@@ -45,7 +48,6 @@ vi.mock('../../../components/ui/Toast', () => ({
 }))
 
 const mockFetch = vi.fn()
-vi.stubGlobal('fetch', mockFetch)
 
 const mockTranslation = vi.fn((key: string) => key)
 vi.mock('react-i18next', () => ({
@@ -67,6 +69,7 @@ const renderWithRouter = (component: React.ReactElement) => {
 beforeEach(async () => {
   vi.resetModules()
   vi.clearAllMocks()
+  vi.stubGlobal('fetch', mockFetch)
   mockFetch.mockReset()
   mockUseClusters.mockReturnValue({
     clusters: [
@@ -109,7 +112,7 @@ describe('NamespaceManager', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Namespace Manager/i)).toBeInTheDocument()
-    }, { timeout: 2000 })
+    }, { timeout: UI_TIMEOUT_MS })
   })
 
   it('shows loading state while fetching namespaces', async () => {
@@ -138,7 +141,7 @@ describe('NamespaceManager', () => {
     // Component should render and be visible
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /create/i })).toBeInTheDocument()
-    }, { timeout: 3000 })
+    }, { timeout: API_TIMEOUT_MS })
 
     // Verify fetch was called for namespaces endpoint
     expect(mockFetch).toHaveBeenCalledWith(
@@ -199,7 +202,7 @@ describe('NamespaceManager', () => {
     // Component should render successfully with filtered clusters
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /create/i })).toBeInTheDocument()
-    }, { timeout: 3000 })
+    }, { timeout: API_TIMEOUT_MS })
   })
 
   it('shows create namespace button', () => {
@@ -271,7 +274,7 @@ describe('NamespaceManager', () => {
     // Wait for initial render
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /create/i })).toBeInTheDocument()
-    }, { timeout: 3000 })
+    }, { timeout: API_TIMEOUT_MS })
 
     const firstCallCount = mockFetch.mock.calls.length
 
@@ -280,7 +283,7 @@ describe('NamespaceManager', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /create/i })).toBeInTheDocument()
-    }, { timeout: 3000 })
+    }, { timeout: API_TIMEOUT_MS })
 
     // Cache should prevent excessive fetch calls
     expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(firstCallCount + 2)

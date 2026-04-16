@@ -15,25 +15,25 @@ export function NamespaceCard({ namespace, isSelected, onSelect, onDelete, isSys
   return (
     <div
       onClick={onSelect}
-      className={`flex items-center gap-4 p-4 rounded-lg cursor-pointer transition-colors group ${
-        isSelected
+      aria-selected={isSelected}
+      className={`flex items-center gap-4 p-4 rounded-lg cursor-pointer transition-colors group ${isSelected
           ? 'bg-blue-500/20 border border-blue-500/50'
           : 'bg-secondary/30 hover:bg-secondary/50 border border-transparent'
-      }`}
+        }`}
     >
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-        isSystem ? 'bg-gray-500/20' : 'bg-blue-500/20'
-      }`}>
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isSystem ? 'bg-gray-500/20' : 'bg-blue-500/20'
+        }`}>
         <Folder className={`w-5 h-5 ${isSystem ? 'text-muted-foreground' : 'text-blue-400'}`} />
       </div>
       <div className="flex-1">
         <div className="flex items-center gap-2">
           <span className="font-medium text-white">{namespace.name}</span>
-          <span className={`text-xs px-1.5 py-0.5 rounded ${
-            namespace.status === 'Active'
-              ? 'bg-green-500/20 text-green-400'
-              : 'bg-yellow-500/20 text-yellow-400'
-          }`}>
+          <span
+            data-status={namespace.status}
+            className={`text-xs px-1.5 py-0.5 rounded ${namespace.status === 'Active'
+                ? 'bg-green-500/20 text-green-400'
+                : 'bg-yellow-500/20 text-yellow-400'
+              }`}>
             {namespace.status}
           </span>
         </div>

@@ -12,6 +12,8 @@ import userEvent from '@testing-library/user-event'
 import { GrantAccessModal } from '../GrantAccessModal'
 import type { NamespaceDetails, NamespaceAccessEntry } from '../types'
 
+const DISCARD_CONFIRM_TIMEOUT_MS = 2000
+
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
 const mockAuthFetch = vi.fn()
@@ -271,7 +273,7 @@ describe('GrantAccessModal', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/discardUnsavedChanges$/i)).toBeInTheDocument()
-    }, { timeout: 2000 })
+    }, { timeout: DISCARD_CONFIRM_TIMEOUT_MS })
   })
 
   it('closes without confirmation if form is empty', async () => {

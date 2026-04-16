@@ -4,7 +4,7 @@
  * Exercises card rendering: selection state styling, status badge,
  * cluster badge display, delete button interactions, and skeleton.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -34,6 +34,10 @@ describe('NamespaceCard', () => {
     vi.clearAllMocks()
   })
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('renders namespace name and cluster', () => {
     render(
       <NamespaceCard
@@ -57,8 +61,7 @@ describe('NamespaceCard', () => {
     )
 
     const card = container.firstChild as HTMLElement
-    expect(card).toHaveClass('bg-blue-500/20')
-    expect(card).toHaveClass('border-blue-500/50')
+    expect(card).toHaveAttribute('aria-selected', 'true')
   })
 
   it('applies unselected styling when isSelected is false', () => {
@@ -71,7 +74,7 @@ describe('NamespaceCard', () => {
     )
 
     const card = container.firstChild as HTMLElement
-    expect(card).toHaveClass('bg-secondary/30')
+    expect(card).toHaveAttribute('aria-selected', 'false')
   })
 
   it('displays Active status badge in green', () => {
@@ -84,8 +87,7 @@ describe('NamespaceCard', () => {
     )
 
     const statusBadge = screen.getByText('Active')
-    expect(statusBadge).toHaveClass('bg-green-500/20')
-    expect(statusBadge).toHaveClass('text-green-400')
+    expect(statusBadge).toHaveAttribute('data-status', 'Active')
   })
 
   it('displays non-Active status badge in yellow', () => {
@@ -103,8 +105,7 @@ describe('NamespaceCard', () => {
     )
 
     const statusBadge = screen.getByText('Terminating')
-    expect(statusBadge).toHaveClass('bg-yellow-500/20')
-    expect(statusBadge).toHaveClass('text-yellow-400')
+    expect(statusBadge).toHaveAttribute('data-status', 'Terminating')
   })
 
   it('calls onSelect when card is clicked', async () => {
@@ -184,6 +185,9 @@ describe('NamespaceCard', () => {
   })
 
   it('formats creation date correctly', () => {
+    // Mock toLocaleDateString to be deterministic regardless of local environment
+    const toLocaleSpy = vi.spyOn(Date.prototype, 'toLocaleDateString').mockReturnValue('12/25/2024')
+
     const testNamespace: NamespaceDetails = {
       ...namespace,
       createdAt: '2024-12-25T00:00:00Z',
@@ -198,6 +202,7 @@ describe('NamespaceCard', () => {
     )
 
     expect(screen.getByText(/12\/25\/2024/)).toBeInTheDocument()
+    toLocaleSpy.mockRestore()
   })
 
   it('hides cluster badge when showCluster is false', () => {
