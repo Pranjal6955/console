@@ -10,7 +10,8 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router-dom'
-import { NamespaceManager } from '../NamespaceManager'
+// Static import removed to support vi.resetModules() for cache clearing
+// import { NamespaceManager } from '../NamespaceManager'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -55,13 +56,16 @@ vi.mock('react-i18next', () => ({
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+let NamespaceManager: React.ComponentType
+
 const renderWithRouter = (component: React.ReactElement) => {
   return render(<BrowserRouter>{component}</BrowserRouter>)
 }
 
 // ── Setup ──────────────────────────────────────────────────────────────────
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules()
   vi.clearAllMocks()
   mockFetch.mockReset()
   mockUseClusters.mockReturnValue({
@@ -83,6 +87,10 @@ beforeEach(() => {
     isRefreshing: false,
     setRefreshing: vi.fn(),
   })
+
+  // Dynamically import component to ensure a fresh module-level cache for each test
+  const mod = await import('../NamespaceManager')
+  NamespaceManager = mod.NamespaceManager
 })
 
 afterEach(() => {
