@@ -73,8 +73,8 @@ export function NamespaceManager() {
   // Get target clusters based on global filter selection
   // We don't check permissions upfront - let the API handle auth errors per-cluster
   const targetClusters = isAllClustersSelected
-      ? deduplicatedClusters.map(c => c.name)
-      : selectedClusters
+    ? deduplicatedClusters.map(c => c.name)
+    : selectedClusters
 
 
   // Filter namespaces from cache based on selected clusters (no refetch needed)
@@ -152,7 +152,8 @@ export function NamespaceManager() {
                 cluster,
                 status: ns.status || 'Active',
                 labels: ns.labels,
-                createdAt: ns.createdAt || new Date().toISOString() }))
+                createdAt: ns.createdAt || new Date().toISOString()
+              }))
             }
           }
         } catch {
@@ -177,7 +178,8 @@ export function NamespaceManager() {
                 name: ns,
                 cluster,
                 status: 'Active',
-                createdAt: new Date().toISOString() })
+                createdAt: new Date().toISOString()
+              })
             })
           } catch {
             // API also failed - cluster is likely unreachable
@@ -260,7 +262,7 @@ export function NamespaceManager() {
     if (clusters.length > 0) {
       fetchNamespaces()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clusters.length])
 
   // Auto-refresh every 30 seconds
@@ -446,11 +448,10 @@ export function NamespaceManager() {
         <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary/30">
           <button
             onClick={() => setGroupBy('cluster')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
-              groupBy === 'cluster'
-                ? 'bg-blue-500/20 text-blue-400'
-                : 'text-muted-foreground hover:text-white'
-            }`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${groupBy === 'cluster'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'text-muted-foreground hover:text-white'
+              }`}
             title="Group by cluster"
           >
             <Server className="w-4 h-4" />
@@ -458,11 +459,10 @@ export function NamespaceManager() {
           </button>
           <button
             onClick={() => setGroupBy('type')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
-              groupBy === 'type'
-                ? 'bg-blue-500/20 text-blue-400'
-                : 'text-muted-foreground hover:text-white'
-            }`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${groupBy === 'type'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'text-muted-foreground hover:text-white'
+              }`}
             title="Group by type (user/system)"
           >
             <Layers className="w-4 h-4" />
@@ -505,6 +505,7 @@ export function NamespaceManager() {
                       }}
                       className="flex items-center gap-2 w-full text-left mb-2 group"
                       title={isCollapsed ? 'Expand cluster' : isUnreachable ? `Cluster offline - check network connection` : 'Collapse cluster'}
+                      aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${clusterName}`}
                     >
                       {isCollapsed ? (
                         <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-white transition-colors" />

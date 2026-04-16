@@ -310,7 +310,27 @@ describe('GrantAccessModal', () => {
     const typeSelect = comboboxes[0] as HTMLSelectElement
     await user.selectOptions(typeSelect, 'ServiceAccount')
 
-    // Verify the component renders without error
-    expect(screen.getByText(/test-ns/)).toBeInTheDocument()
+    const subjectInput = screen.getByPlaceholderText(/Select or type a service account/i)
+    const nsInput = screen.getByPlaceholderText('default')
+    const grantBtn = screen.getByRole('button', { name: /grant/i })
+
+    await user.type(subjectInput, 'my-sa')
+    await user.type(nsInput, 'custom-ns')
+    await user.click(grantBtn)
+
+    await waitFor(() => {
+      expect(mockAuthFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/rolebindings'),
+        expect.objectContaining({
+          body: expect.stringContaining('"subjectNamespace":"custom-ns"')
+        })
+      )
+    })
+    expect(mockAuthFetch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        body: expect.stringContaining('"subjectName":"my-sa"')
+      })
+    )
   })
 })

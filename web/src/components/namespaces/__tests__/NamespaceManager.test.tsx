@@ -65,7 +65,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockFetch.mockReset()
   mockUseClusters.mockReturnValue({
-    clusters: [],
+    clusters: [
+      { name: 'cluster-1', reachable: true },
+      { name: 'cluster-2', reachable: true },
+    ],
     deduplicatedClusters: [
       { name: 'cluster-1' },
       { name: 'cluster-2' },
@@ -102,15 +105,15 @@ describe('NamespaceManager', () => {
   })
 
   it('shows loading state while fetching namespaces', async () => {
-    mockFetch.mockImplementationOnce(
-      () => new Promise(resolve => setTimeout(() => resolve(
-        new Response(JSON.stringify({ namespaces: [] }), { status: 200 })
-      ), 100))
-    )
+    mockUseClusters.mockReturnValueOnce({
+      clusters: [],
+      deduplicatedClusters: [],
+      isLoading: true,
+    })
 
     renderWithRouter(<NamespaceManager />)
 
-    expect(screen.getByRole('button', { name: /create/i })).toBeInTheDocument()
+    expect(screen.getByText(/Loading Clusters/i)).toBeInTheDocument()
   })
 
   it('fetches namespaces from local agent endpoint', async () => {
@@ -129,13 +132,11 @@ describe('NamespaceManager', () => {
       expect(screen.getByRole('button', { name: /create/i })).toBeInTheDocument()
     }, { timeout: 3000 })
 
-    // If fetch was called, verify it was for namespaces endpoint
-    if (mockFetch.mock.calls.length > 0) {
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/namespaces'),
-        expect.any(Object)
-      )
-    }
+    // Verify fetch was called for namespaces endpoint
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/namespaces'),
+      expect.any(Object)
+    )
   })
 
   it('handles fetch errors gracefully', async () => {
@@ -289,11 +290,10 @@ describe('NamespaceManager', () => {
 
     renderWithRouter(<NamespaceManager />)
 
-    const expandCollapseBtn = screen.queryByRole('button', { name: /chevron/i })
-    if (expandCollapseBtn) {
-      await user.click(expandCollapseBtn)
-      expect(expandCollapseBtn).toBeInTheDocument()
-    }
+    const expandCollapseBtn = await screen.findByRole('button', { name: /collapse cluster-1/i })
+    await user.click(expandCollapseBtn)
+
+    expect(screen.getByRole('button', { name: /expand cluster-1/i })).toBeInTheDocument()
   })
 
   it('displays cluster count or summary info', () => {
@@ -320,11 +320,9 @@ describe('NamespaceManager', () => {
 
     const searchInput = screen.getByPlaceholderText(/search/i) as HTMLInputElement
     await user.type(searchInput, 'test')
+    expect(searchInput.value).toBe('test')
 
-    const clearBtn = screen.queryByRole('button', { name: /clear/i })
-    if (clearBtn) {
-      await user.click(clearBtn)
-      expect(searchInput.value).toBe('')
-    }
+    await user.clear(searchInput)
+    expect(searchInput.value).toBe('')
   })
 })
