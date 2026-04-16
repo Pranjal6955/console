@@ -72,7 +72,7 @@ describe('DeleteConfirmModal', () => {
       />
     )
 
-    const deleteBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Delete'))
+    const deleteBtn = screen.getByRole('button', { name: /delete/i })
     expect(deleteBtn).toBeDisabled()
 
     const input = screen.getByPlaceholderText('Enter namespace name')
@@ -95,16 +95,14 @@ describe('DeleteConfirmModal', () => {
     )
 
     const input = screen.getByPlaceholderText('Enter namespace name')
-    const deleteBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Delete'))
+    const deleteBtn = screen.getByRole('button', { name: /delete/i })
 
     await user.type(input, 'test-namespace')
-    if (deleteBtn) {
-      await user.click(deleteBtn)
+    await user.click(deleteBtn)
 
-      await waitFor(() => {
-        expect(mockOnConfirm).toHaveBeenCalled()
-      })
-    }
+    await waitFor(() => {
+      expect(mockOnConfirm).toHaveBeenCalled()
+    })
   })
 
   it('disables delete button while deletion is in progress', async () => {
@@ -122,15 +120,13 @@ describe('DeleteConfirmModal', () => {
     )
 
     const input = screen.getByPlaceholderText('Enter namespace name')
-    const deleteBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Delete'))
+    const deleteBtn = screen.getByRole('button', { name: /delete/i })
 
     await user.type(input, 'test-namespace')
-    if (deleteBtn) {
-      await user.click(deleteBtn)
+    await user.click(deleteBtn)
 
-      expect(deleteBtn).toBeDisabled()
-      resolveDelete!()
-    }
+    expect(deleteBtn).toBeDisabled()
+    resolveDelete!()
   })
 
   it('calls onClose when cancel button is clicked', async () => {
@@ -143,13 +139,11 @@ describe('DeleteConfirmModal', () => {
       />
     )
 
-    const cancelBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Cancel'))
-    if (cancelBtn) {
-      await user.click(cancelBtn)
+    const cancelBtn = screen.getByRole('button', { name: /cancel/i })
+    await user.click(cancelBtn)
 
-      expect(mockOnClose).toHaveBeenCalled()
-      expect(mockOnConfirm).not.toHaveBeenCalled()
-    }
+    expect(mockOnClose).toHaveBeenCalled()
+    expect(mockOnConfirm).not.toHaveBeenCalled()
   })
 
   it('shows different namespace names correctly', () => {
@@ -185,7 +179,7 @@ describe('DeleteConfirmModal', () => {
     )
 
     const input = screen.getByPlaceholderText('Enter namespace name')
-    const deleteBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Delete'))
+    const deleteBtn = screen.getByRole('button', { name: /delete/i })
 
     await user.type(input, 'Test-Namespace')
     expect(deleteBtn).toBeDisabled()

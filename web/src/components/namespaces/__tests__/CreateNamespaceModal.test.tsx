@@ -118,20 +118,18 @@ describe('CreateNamespaceModal', () => {
 
     const nameInput = screen.getByPlaceholderText('my-namespace')
     const teamInput = screen.getByPlaceholderText('platform-team')
-    const createBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Create'))
+    const createBtn = screen.getByRole('button', { name: /create/i })
 
     await user.type(nameInput, 'test-ns')
     await user.type(teamInput, 'my-team')
-    if (createBtn) {
-      await user.click(createBtn)
+    await user.click(createBtn)
 
-      await waitFor(() => {
-        expect(mockAuthFetch).toHaveBeenCalledWith(
-          expect.stringContaining('/namespaces'),
-          expect.any(Object)
-        )
-      })
-    }
+    await waitFor(() => {
+      expect(mockAuthFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/namespaces'),
+        expect.any(Object)
+      )
+    })
   })
 
   it('displays error when creation fails', async () => {
@@ -149,16 +147,14 @@ describe('CreateNamespaceModal', () => {
     )
 
     const nameInput = screen.getByPlaceholderText('my-namespace')
-    const createBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Create'))
+    const createBtn = screen.getByRole('button', { name: /create/i })
 
     await user.type(nameInput, 'existing-ns')
-    if (createBtn) {
-      await user.click(createBtn)
+    await user.click(createBtn)
 
-      await waitFor(() => {
-        expect(screen.getByText(/Namespace already exists/i)).toBeInTheDocument()
-      })
-    }
+    await waitFor(() => {
+      expect(screen.getByText(/Namespace already exists/i)).toBeInTheDocument()
+    })
   })
 
   it('disables create button when name or cluster is missing', async () => {
@@ -170,7 +166,7 @@ describe('CreateNamespaceModal', () => {
       />
     )
 
-    const createBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Create'))
+    const createBtn = screen.getByRole('button', { name: /create/i })
     expect(createBtn).toBeDisabled()
   })
 
@@ -187,16 +183,14 @@ describe('CreateNamespaceModal', () => {
     const nameInput = screen.getByPlaceholderText('my-namespace')
     await user.type(nameInput, 'test-ns')
 
-    const closeBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Cancel'))
-    if (closeBtn) {
-      await user.click(closeBtn)
+    const closeBtn = screen.getByRole('button', { name: /cancel/i })
+    await user.click(closeBtn)
 
-      await waitFor(() => {
-        expect(screen.queryByText(/Discard unsaved changes/i)).toBeInTheDocument()
-      }, { timeout: 2000 }).catch(() => {
-        // Modal might close directly
-      })
-    }
+    await waitFor(() => {
+      expect(screen.queryByText(/Discard unsaved changes/i)).toBeInTheDocument()
+    }, { timeout: 2000 }).catch(() => {
+      // Modal might close directly
+    })
   })
 
   it('closes without confirmation if form is empty', async () => {
@@ -209,14 +203,12 @@ describe('CreateNamespaceModal', () => {
       />
     )
 
-    const closeBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Cancel'))
-    if (closeBtn) {
-      await user.click(closeBtn)
+    const closeBtn = screen.getByRole('button', { name: /cancel/i })
+    await user.click(closeBtn)
 
-      await waitFor(() => {
-        expect(mockOnClose).toHaveBeenCalled()
-      })
-    }
+    await waitFor(() => {
+      expect(mockOnClose).toHaveBeenCalled()
+    })
   })
 
   it('includes team label in POST body when provided', async () => {
@@ -233,18 +225,16 @@ describe('CreateNamespaceModal', () => {
 
     const nameInput = screen.getByPlaceholderText('my-namespace')
     const teamInput = screen.getByPlaceholderText('platform-team')
-    const createBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Create'))
+    const createBtn = screen.getByRole('button', { name: /create/i })
 
     await user.type(nameInput, 'test-ns')
     await user.type(teamInput, 'platform-team')
-    if (createBtn) {
-      await user.click(createBtn)
+    await user.click(createBtn)
 
-      await waitFor(() => {
-        const callBody = mockAuthFetch.mock.calls[0]?.[1]?.body as string
-        expect(callBody).toContain('"team":"platform-team"')
-      })
-    }
+    await waitFor(() => {
+      const callBody = mockAuthFetch.mock.calls[0]?.[1]?.body as string
+      expect(callBody).toContain('"team":"platform-team"')
+    })
   })
 
   it('disables create button while creation is in progress', async () => {
@@ -262,13 +252,11 @@ describe('CreateNamespaceModal', () => {
     )
 
     const nameInput = screen.getByPlaceholderText('my-namespace')
-    const createBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Create'))
+    const createBtn = screen.getByRole('button', { name: /create/i })
 
     await user.type(nameInput, 'test-ns')
-    if (createBtn) {
-      await user.click(createBtn)
+    await user.click(createBtn)
 
-      expect(createBtn).toBeDisabled()
-    }
+    expect(createBtn).toBeDisabled()
   })
 })

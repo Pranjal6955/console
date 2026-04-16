@@ -178,20 +178,17 @@ describe('GrantAccessModal', () => {
 
     const inputs = screen.getAllByRole('textbox')
     const subjectInput = inputs[0]
-    const comboboxes = screen.getAllByRole('combobox')
-    const grantBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Grant'))
-    
-    if (grantBtn && subjectInput) {
-      await user.type(subjectInput, 'developer@example.com')
-      await user.click(grantBtn)
+    const grantBtn = screen.getByRole('button', { name: /grant/i })
 
-      await waitFor(() => {
-        expect(mockAuthFetch).toHaveBeenCalledWith(
-          expect.stringContaining('/rolebindings'),
-          expect.any(Object)
-        )
-      })
-    }
+    await user.type(subjectInput, 'developer@example.com')
+    await user.click(grantBtn)
+
+    await waitFor(() => {
+      expect(mockAuthFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/rolebindings'),
+        expect.any(Object)
+      )
+    })
   })
 
   it('displays error when grant fails', async () => {
@@ -210,17 +207,15 @@ describe('GrantAccessModal', () => {
     )
 
     const subjectInput = screen.getByPlaceholderText(/Select or type a user/i)
-    const grantBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Grant'))
+    const grantBtn = screen.getByRole('button', { name: /grant/i })
 
-    if (grantBtn) {
-      await user.type(subjectInput, 'user@example.com')
-      await user.click(grantBtn)
+    await user.type(subjectInput, 'user@example.com')
+    await user.click(grantBtn)
 
-      await waitFor(() => {
-        expect(screen.getByText(/Permission denied/i)).toBeInTheDocument()
-      })
-      expect(mockOnGranted).not.toHaveBeenCalled()
-    }
+    await waitFor(() => {
+      expect(screen.getByText(/Permission denied/i)).toBeInTheDocument()
+    })
+    expect(mockOnGranted).not.toHaveBeenCalled()
   })
 
   it('disables grant button when subject name is missing', () => {
@@ -233,7 +228,7 @@ describe('GrantAccessModal', () => {
       />
     )
 
-    const grantBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Grant'))
+    const grantBtn = screen.getByRole('button', { name: /grant/i })
     expect(grantBtn).toBeDisabled()
   })
 
@@ -268,16 +263,14 @@ describe('GrantAccessModal', () => {
       />
     )
 
-    const closeBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Cancel') || btn.textContent?.includes('Close'))
-    if (closeBtn) {
-      await user.click(closeBtn)
+    const closeBtn = screen.getByRole('button', { name: /cancel/i })
+    await user.click(closeBtn)
 
-      await waitFor(() => {
-        expect(screen.queryByText(/Discard unsaved changes/i)).toBeInTheDocument()
-      }, { timeout: 2000 }).catch(() => {
-        // Modal might close directly without confirmation
-      })
-    }
+    await waitFor(() => {
+      expect(screen.queryByText(/Discard unsaved changes/i)).toBeInTheDocument()
+    }, { timeout: 2000 }).catch(() => {
+      // Modal might close directly without confirmation
+    })
   })
 
   it('closes without confirmation if form is empty', async () => {
@@ -291,14 +284,12 @@ describe('GrantAccessModal', () => {
       />
     )
 
-    const closeBtn = screen.getAllByRole('button').find(btn => btn.textContent?.includes('Cancel') || btn.textContent?.includes('Close'))
-    if (closeBtn) {
-      await user.click(closeBtn)
+    const closeBtn = screen.getByRole('button', { name: /cancel/i })
+    await user.click(closeBtn)
 
-      await waitFor(() => {
-        expect(mockOnClose).toHaveBeenCalled()
-      })
-    }
+    await waitFor(() => {
+      expect(mockOnClose).toHaveBeenCalled()
+    })
   })
 
   it('includes service account namespace in POST body when provided', async () => {
