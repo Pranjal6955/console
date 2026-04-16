@@ -263,14 +263,15 @@ describe('GrantAccessModal', () => {
       />
     )
 
+    const subjectInput = screen.getByPlaceholderText(/Select or type a user/i)
+    await user.type(subjectInput, 'unsaved@example.com')
+
     const closeBtn = screen.getByRole('button', { name: /cancel/i })
     await user.click(closeBtn)
 
     await waitFor(() => {
-      expect(screen.queryByText(/Discard unsaved changes/i)).toBeInTheDocument()
-    }, { timeout: 2000 }).catch(() => {
-      // Modal might close directly without confirmation
-    })
+      expect(screen.getByText(/discardUnsavedChanges$/i)).toBeInTheDocument()
+    }, { timeout: 2000 })
   })
 
   it('closes without confirmation if form is empty', async () => {

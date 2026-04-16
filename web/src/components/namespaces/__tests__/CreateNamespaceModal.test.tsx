@@ -187,10 +187,8 @@ describe('CreateNamespaceModal', () => {
     await user.click(closeBtn)
 
     await waitFor(() => {
-      expect(screen.queryByText(/Discard unsaved changes/i)).toBeInTheDocument()
-    }, { timeout: 2000 }).catch(() => {
-      // Modal might close directly
-    })
+      expect(screen.getByText(/discardUnsavedChanges$/i)).toBeInTheDocument()
+    }, { timeout: 2000 })
   })
 
   it('closes without confirmation if form is empty', async () => {
