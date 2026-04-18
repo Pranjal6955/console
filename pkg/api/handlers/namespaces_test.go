@@ -11,6 +11,7 @@ import (
 	"github.com/kubestellar/console/pkg/models"
 	"github.com/kubestellar/console/pkg/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,7 +26,9 @@ func TestNamespaceHandlers(t *testing.T) {
 	env.App.Get("/api/namespaces/:name/access", h.GetNamespaceAccess)
 
 	// Seed some namespaces into the fake cluster
-	fakeClient, _ := env.K8sClient.GetClient("test-cluster")
+	fakeClient, err := env.K8sClient.GetClient("test-cluster")
+	require.NoError(t, err)
+	require.NotNil(t, fakeClient)
 	_, _ = fakeClient.CoreV1().Namespaces().Create(t.Context(), &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: "ns-1"},
 		Status:     corev1.NamespaceStatus{Phase: corev1.NamespaceActive},
