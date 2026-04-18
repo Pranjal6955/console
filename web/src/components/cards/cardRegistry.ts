@@ -262,8 +262,6 @@ const SLOCompliance = safeLazy(() => import('./slo_compliance'), 'SLOCompliance'
 const FailoverTimeline = safeLazy(() => import('./failover_timeline'), 'FailoverTimeline')
 // Trino query gateway monitoring card
 const TrinoGateway = safeLazy(() => import('./trino_gateway'), 'TrinoGateway')
-// Thanos distributed metrics card
-const ThanosStatus = safeLazy(() => import('./thanos_status'), 'ThanosStatus')
 // OpenFeature feature-flag management card
 const OpenFeatureStatus = safeLazy(() => import('./openfeature_status'), 'OpenFeatureStatus')
 // OpenKruise advanced workloads + sidecar injection card
@@ -594,7 +592,6 @@ const RAW_CARD_COMPONENTS: Record<string, CardComponent> = {
   // Trino query gateway monitoring
   trino_gateway: TrinoGateway,
   // Thanos distributed metrics
-  thanos_status: ThanosStatus,
   // OpenFeature feature-flag management
   openfeature_status: OpenFeatureStatus,
   // OpenKruise advanced workloads + sidecar injection
@@ -1006,8 +1003,6 @@ const CARD_CHUNK_PRELOADERS: Record<string, () => Promise<unknown>> = {
   slo_compliance: () => import('./slo_compliance'),
   failover_timeline: () => import('./failover_timeline'),
   trino_gateway: () => import('./trino_gateway'),
-  // Thanos distributed metrics
-  thanos_status: () => import('./thanos_status'),
   // OpenFeature feature-flag management
   openfeature_status: () => import('./openfeature_status'),
   // OpenKruise advanced workloads + sidecar injection
@@ -1082,7 +1077,7 @@ const CARD_CHUNK_PRELOADERS: Record<string, () => Promise<unknown>> = {
  */
 export function prefetchCardChunks(cardTypes: string[]): void {
   for (const type of cardTypes) {
-    CARD_CHUNK_PRELOADERS[type]?.()?.catch(() => {})
+    CARD_CHUNK_PRELOADERS[type]?.()?.catch(() => { })
   }
 }
 
@@ -1129,7 +1124,7 @@ export function prefetchDemoCardChunks(): void {
     () => import('./crossplane-status/CrossplaneManagedResources'),
     () => import('./VClusterStatus'),
   ]
-  startupChunks.forEach(load => load().catch(() => {}))
+  startupChunks.forEach(load => load().catch(() => { }))
 }
 
 /**
@@ -1356,8 +1351,6 @@ export const CARD_DEFAULT_WIDTHS: Record<string, number> = {
   slo_compliance: 6,
   failover_timeline: 8,
   trino_gateway: 6,
-  // Thanos distributed metrics
-  thanos_status: 6,
   // OpenFeature feature-flag management
   openfeature_status: 6,
   // OpenKruise advanced workloads + sidecar injection
