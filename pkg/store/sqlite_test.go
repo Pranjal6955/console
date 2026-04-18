@@ -167,6 +167,16 @@ func TestUserCRUD(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, got.LastLogin)
 	})
+
+	t.Run("GetUserByGitHubLogin returns user by handle", func(t *testing.T) {
+		s := newTestStore(t)
+		_ = createTestUser(t, s, "gh-800", "helen")
+
+		got, err := s.GetUserByGitHubLogin("helen")
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Equal(t, "gh-800", got.GitHubID)
+	})
 }
 
 func TestTokenRevocation(t *testing.T) {
