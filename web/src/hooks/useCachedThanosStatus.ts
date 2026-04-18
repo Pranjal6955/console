@@ -4,7 +4,7 @@
  * Provides cached hooks for fetching Thanos status data.
  */
 
-import { useCache, type RefreshCategory } from '../lib/cache'
+import { useCache, type RefreshCategory } from '@/lib/cache'
 import { FETCH_DEFAULT_TIMEOUT_MS } from '../lib/constants/network'
 
 // ============================================================================
