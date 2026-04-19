@@ -794,11 +794,6 @@ func (s *Server) setupRoutes() {
 	// Medium blog (public — proxies to Medium RSS feed, cached 1h)
 	s.app.Get("/api/medium/blog", publicLimiter, handlers.MediumBlogHandler)
 
-	// Badge routes (dynamic rewards badges for GitHub READMEs)
-	badgeHandler := handlers.NewBadgeHandler(s.store)
-	s.app.Get("/api/badge/:username", publicLimiter, badgeHandler.GetBadge)
-	s.app.Get("/api/rewards/badge/:username", publicLimiter, badgeHandler.GetBadge)
-
 	// ACMM scan — registered below on the authenticated api group
 
 	// Mission knowledge base browse/file (public — proxies to public GitHub repo)
@@ -1170,6 +1165,10 @@ func (s *Server) setupRoutes() {
 		Orgs:        s.config.RewardsGitHubOrgs,
 	})
 	api.Get("/rewards/github", rewardsHandler.GetGitHubRewards)
+
+	// Badge routes (dynamic rewards badges for GitHub READMEs) — public and unauthenticated (#8862)
+	s.app.Get("/api/badge/:github_login", publicLimiter, rewardsHandler.GetContributorBadge)
+	s.app.Get("/api/rewards/badge/:github_login", publicLimiter, rewardsHandler.GetContributorBadge)
 
 	// Persistent per-user reward balances (issue #6011). Every authenticated
 	// user can read and mutate their own row — no RBAC gate needed because

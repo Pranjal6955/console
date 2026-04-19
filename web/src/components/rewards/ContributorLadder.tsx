@@ -41,7 +41,7 @@ export function ContributorBanner() {
 
   const githubLogin = user?.github_login || 'demo-user'
   // Use window.location.origin for the absolute URL to ensure GitHub can proxy it
-  const badgeUrl = `${window.location.origin}/api/badge/${githubLogin}`
+  const badgeUrl = `${window.location.origin}/api/rewards/badge/${githubLogin}`
   const profileUrl = `${window.location.origin}/arcade`
   const markdown = `[![KubeStellar Rank](${badgeUrl})](${profileUrl})`
 

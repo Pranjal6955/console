@@ -370,6 +370,12 @@ export const handlers = [
   http.all('https://www.googletagmanager.com/*', () => passthrough()),
   http.all(/^https:\/\/[^/]*google-analytics\.com\//, () => passthrough()),
 
+  // ── Contributor Badges passthrough ─────────────────────────────────
+  // Pass through the badge endpoint so the browser fetches the real SVG
+  // from the backend (or Netlify function) even in demo mode (#8862).
+  http.all('*/api/rewards/badge/*', () => passthrough()),
+  http.all('*/api/badge/*', () => passthrough()),
+
   // ── External resource passthrough ──────────────────────────────────
   // Pass through external resources so MSW doesn't warn about them
   http.all('https://api.dicebear.com/*', () => passthrough()),
@@ -380,9 +386,9 @@ export const handlers = [
   // (connect-src doesn't include github.com on Netlify)
   http.get('https://github.com/*.png', () => {
     const TRANSPARENT_1X1_PNG = new Uint8Array([
-      137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,
-      31,21,196,137,0,0,0,10,73,68,65,84,120,156,98,0,0,0,6,0,5,130,217,36,0,0,
-      0,0,73,69,78,68,174,66,96,130,
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0,
+      31, 21, 196, 137, 0, 0, 0, 10, 73, 68, 65, 84, 120, 156, 98, 0, 0, 0, 6, 0, 5, 130, 217, 36, 0, 0,
+      0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
     ])
     return new HttpResponse(TRANSPARENT_1X1_PNG, { headers: { 'Content-Type': 'image/png' } })
   }),
