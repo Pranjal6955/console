@@ -108,6 +108,17 @@
   to = "/.netlify/functions/youtube-thumbnail"
   status = 200
 
+# Rewards Badge API — dynamic branded SVG contributor badges
+[[redirects]]
+  from = "/api/rewards/badge/:github_login"
+  to = "/.netlify/functions/rewards-badge"
+  status = 200
+
+[[redirects]]
+  from = "/api/badge/:github_login"
+  to = "/.netlify/functions/rewards-badge"
+  status = 200
+
 # Analytics dashboard page — serve static HTML
 [[redirects]]
   from = "/analytics"

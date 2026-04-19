@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "dev:coverage": "VITE_COVERAGE=true vite",
-    "prebuild": "cd .. && go run scripts/gen-tiers-ts.go",
+    "prebuild": "command -v go >/dev/null 2>&1 && (cd .. && go run scripts/gen-tiers-ts.go) || echo \"Skipping rewards generation (go not found)\"",
     "build": "tsc -b && vite build",
     "postbuild": "node scripts/check-vendor-safety.mjs",
     "lint": "eslint .",

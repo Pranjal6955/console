@@ -44,6 +44,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Tier drift check
+        run: ./scripts/check-tiers-drift.sh
+
       - name: Install nilaway
         run: go install go.uber.org/nilaway/cmd/nilaway@latest
 

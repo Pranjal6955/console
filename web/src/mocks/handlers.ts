@@ -370,11 +370,23 @@ export const handlers = [
   http.all('https://www.googletagmanager.com/*', () => passthrough()),
   http.all(/^https:\/\/[^/]*google-analytics\.com\//, () => passthrough()),
 
-  // ── Contributor Badges passthrough ─────────────────────────────────
-  // Pass through the badge endpoint so the browser fetches the real SVG
-  // from the backend (or Netlify function) even in demo mode (#8862).
-  http.all('*/api/rewards/badge/*', () => passthrough()),
-  http.all('*/api/badge/*', () => passthrough()),
+  // ── Contributor Badges ───────────────────────────────────────────
+  // Mock the badge endpoint so the browser displays a placeholder SVG
+  // in demo mode and CI environments without a backend (#8862).
+  http.all('*/api/rewards/badge/*', () => {
+    const MOCK_SVG = `
+      <svg width="240" height="40" xmlns="http://www.w3.org/2000/svg">
+        <rect width="240" height="40" rx="8" fill="#03030b" />
+        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#94a3b8" font-family="sans-serif" font-size="12">
+          Contributor Badge (Demo)
+        </text>
+      </svg>
+    `.trim()
+    return new HttpResponse(MOCK_SVG, { headers: { 'Content-Type': 'image/svg+xml' } })
+  }),
+  http.all('*/api/badge/*', () => {
+    return new HttpResponse(null, { status: 302, headers: { Location: '/api/rewards/badge/placeholder' } })
+  }),
 
   // ── External resource passthrough ──────────────────────────────────
   // Pass through external resources so MSW doesn't warn about them
