@@ -434,10 +434,10 @@ func (s *Server) setupMiddleware() {
 		// runs on a different port than the backend (cross-origin).
 		// See: web/src/lib/constants/network.ts (LOCAL_AGENT_HTTP_URL,
 		// LOCAL_AGENT_WS_URL) for the exact URLs the frontend uses.
-		const kcAgentLoopback = "http://127.0.0.1:8585"    // kc-agent HTTP on loopback IP
-		const kcAgentLoopbackWS = "ws://127.0.0.1:8585"    // kc-agent WebSocket on loopback IP
-		const kcAgentLocalhost = "http://localhost:8585"    // kc-agent HTTP on localhost
-		const kcAgentLocalhostWS = "ws://localhost:8585"    // kc-agent WebSocket on localhost
+		const kcAgentLoopback = "http://127.0.0.1:8585"  // kc-agent HTTP on loopback IP
+		const kcAgentLoopbackWS = "ws://127.0.0.1:8585"  // kc-agent WebSocket on loopback IP
+		const kcAgentLocalhost = "http://localhost:8585" // kc-agent HTTP on localhost
+		const kcAgentLocalhostWS = "ws://localhost:8585" // kc-agent WebSocket on localhost
 
 		// script-src includes 'wasm-unsafe-eval' because the SQLite cache
 		// worker compiles a WebAssembly module at runtime; without it the
@@ -661,8 +661,8 @@ func (s *Server) setupRoutes() {
 	authLimiterMaxRequests := 10         // max requests per window
 	authLimiterWindow := 1 * time.Minute // sliding window duration
 	authLimiter := limiter.New(limiter.Config{
-		Max:        authLimiterMaxRequests,
-		Expiration: authLimiterWindow,
+		Max:          authLimiterMaxRequests,
+		Expiration:   authLimiterWindow,
 		KeyGenerator: middleware.CompositeKey,
 		LimitReached: func(c *fiber.Ctx) error {
 			ip := c.IP()
@@ -701,7 +701,7 @@ func (s *Server) setupRoutes() {
 
 	// Public endpoint rate limiter — loose limit to prevent DoS on unauthenticated
 	// routes (active-users, ping, nightly-e2e, youtube, medium, analytics) (#7029).
-	publicLimiterMaxRequests := 60        // max requests per window per IP
+	publicLimiterMaxRequests := 60         // max requests per window per IP
 	publicLimiterWindow := 1 * time.Minute // sliding window duration
 	publicLimiter := limiter.New(limiter.Config{
 		Max:        publicLimiterMaxRequests,
@@ -1175,7 +1175,7 @@ func (s *Server) setupRoutes() {
 	// auth required, rate-limited via publicLimiter (60 req/min/IP). Mounted
 	// on s.app, not `api`, because the `api` group is gated by JWTAuth and
 	// this endpoint must be reachable from READMEs via Camo.
-	badgeHandler := handlers.NewBadgeHandler(rewardsHandler)
+	badgeHandler := handlers.NewBadgeHandler(rewardsHandler, s.store)
 	s.app.Get("/api/rewards/badge/:github_login", publicLimiter, badgeHandler.GetBadge)
 
 	// Persistent per-user reward balances (issue #6011). Every authenticated
