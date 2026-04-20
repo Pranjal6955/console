@@ -144,16 +144,38 @@ func (h *BadgeHandler) GetBadge(c *fiber.Ctx) error {
 	// the console at least once. Prevents drive-by scraping of GitHub logins
 	// that have no affiliation with the project.
 	if h.store != nil {
-		u, err := h.store.GetUserByGitHubLogin(login)
+		user, err := h.store.GetUserByGitHubLogin(login)
 		if err != nil {
 			slog.Error("[rewards/badge] store lookup failed", "login", login, "error", err)
 			return renderBadgeSVG(c, badgeStatusBadGate, badgeErrorTierName, badgeErrorTierColor, "", badgeCacheControlError)
 		}
-		if u == nil {
+		if user == nil {
 			// Unknown to console -> return the gray "unknown" badge immediately
 			// without hitting GitHub.
 			return renderBadgeSVG(c, badgeStatusOK, badgeUnknownTierName, badgeUnknownTierColor, "", badgeCacheControlSuccess)
 		}
+
+		resp, cacheHit, err := h.fetcher.fetchUserRewardsForBadge(login)
+		if err != nil {
+			slog.Error("[rewards/badge] live rewards fetch failed", "login", login, "error", err)
+			return renderBadgeSVG(c, http.StatusBadGateway, badgeErrorTierName, badgeErrorTierColor, "", badgeCacheControlError)
+		}
+
+		// Fetch local console rewards (daily logins, onboarding, etc.) and add to
+		// the live GitHub total to get the unified rank seen in the UI.
+		storeRewards, err := h.store.GetUserRewards(user.GitHubID)
+		if err != nil {
+			slog.Error("[rewards/badge] store rewards fetch failed", "login", login, "userId", user.GitHubID, "error", err)
+			// Fall back to GitHub-only points rather than failing the badge
+			storeRewards = &store.UserRewards{}
+		}
+
+		totalPoints := totalPointsFromResponse(resp) + storeRewards.Coins + storeRewards.BonusPoints
+		tier := rewards.GetContributorLevel(totalPoints)
+		fill := tierColorHex(tier.Color)
+
+		emitBadgeFetchedEvent(login, tier.Name, cacheHit)
+		return renderBadgeSVG(c, badgeStatusOK, tier.Name, fill, tier.IconPath, badgeCacheControlSuccess)
 	}
 
 	resp, cacheHit, err := h.fetcher.fetchUserRewardsForBadge(login)
