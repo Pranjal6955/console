@@ -229,11 +229,10 @@ export interface ContributorLevel {
 }
 
 // Canonical tier data lives in pkg/rewards/tiers.go (Phase 1 of RFC #8862).
-// scripts/gen-rewards-types.mjs emits rewards.generated.ts from that Go
-// source, and the CI drift check ensures the two stay in sync.
-import { CONTRIBUTOR_LEVELS_GENERATED } from './rewards.generated'
+// scripts/gen-tiers-ts.go emits rewards.generated.ts from that Go source.
+import { CONTRIBUTOR_LEVELS as GENERATED_LEVELS } from './rewards.generated'
 
-export const CONTRIBUTOR_LEVELS: ContributorLevel[] = CONTRIBUTOR_LEVELS_GENERATED
+export const CONTRIBUTOR_LEVELS: ContributorLevel[] = GENERATED_LEVELS
 
 /** Returns the current level and the next level (null if max) */
 export function getContributorLevel(totalCoins: number): {
