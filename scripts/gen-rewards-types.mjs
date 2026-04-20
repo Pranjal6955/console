@@ -1,203 +1,126 @@
-#!/usr/bin/env node
-// Generates web/src/types/rewards.generated.ts from pkg/rewards/tiers.go.
-//
-// Phase 1 of RFC #8862 makes Go the canonical source for contributor rank
-// tiers. This script parses the Go source with a regex-based extractor (no
-// AST libs, no toolchain beyond Node itself) and emits a TypeScript file
-// with the same tier data plus a re-export of the current-tier lookup.
-//
-// Usage:
-//   node scripts/gen-rewards-types.mjs              # write generated file
-//   node scripts/gen-rewards-types.mjs --check      # exit 1 if out of sync
-//
-// The --check mode is what CI calls: it runs the generator into a temp
-// buffer and compares against the committed file. Any drift fails the job
-// so the TS and Go sides cannot silently disagree.
-
-import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = resolve(SCRIPT_DIR, '..')
-const GO_SOURCE = resolve(REPO_ROOT, 'pkg/rewards/tiers.go')
-const TS_OUTPUT = resolve(REPO_ROOT, 'web/src/types/rewards.generated.ts')
-
-// Markers that bracket the tier slice in the Go source. Keeping these as
-// constants instead of inline literals keeps the parser easy to retarget
-// if the Go file is ever reshuffled.
-const SLICE_START_MARKER = 'var ContributorLevels = []Tier{'
-const SLICE_END_MARKER = '\n}\n'
-
-/** Fields that appear on every Tier struct literal, in declaration order. */
-const TIER_FIELDS = [
-  { go: 'Rank', ts: 'rank', kind: 'number' },
-  { go: 'Name', ts: 'name', kind: 'string' },
-  { go: 'Icon', ts: 'icon', kind: 'string' },
-  { go: 'MinCoins', ts: 'minCoins', kind: 'number' },
-  { go: 'Color', ts: 'color', kind: 'string' },
-  { go: 'BgClass', ts: 'bgClass', kind: 'string' },
-  { go: 'TextClass', ts: 'textClass', kind: 'string' },
-  { go: 'BorderClass', ts: 'borderClass', kind: 'string' },
-]
+import fs from 'fs';
+import path from 'path';
 
 /**
- * Extract the ContributorLevels slice body (everything between the opening
- * `{` of the literal and the closing `}` on its own line).
+ * gen-rewards-types.mjs
+ * 
+ * Migrated from scripts/gen-tiers-ts.go to support environments without a Go toolchain.
+ * Parsers pkg/rewards/tiers.go (canonical source) to generate TypeScript definitions.
  */
-function extractSliceBody(goSource) {
-  const startIdx = goSource.indexOf(SLICE_START_MARKER)
-  if (startIdx === -1) {
-    throw new Error(
-      `Could not find '${SLICE_START_MARKER}' in ${GO_SOURCE}. ` +
-        `The Go source may have been restructured; update SLICE_START_MARKER.`,
-    )
-  }
-  const afterStart = startIdx + SLICE_START_MARKER.length
-  const endIdx = goSource.indexOf(SLICE_END_MARKER, afterStart)
-  if (endIdx === -1) {
-    throw new Error(
-      `Could not find end of ContributorLevels slice (looked for '\\n}\\n' after start).`,
-    )
-  }
-  return goSource.slice(afterStart, endIdx)
+
+const GO_FILE = 'pkg/rewards/tiers.go';
+const TS_FILE = 'web/src/types/rewards.generated.ts';
+const NETLIFY_FILE = 'web/netlify/functions/rewards-tiers.generated.ts';
+
+function parseGoTiers(filePath) {
+    const content = fs.readFileSync(filePath, 'utf8');
+
+    const startMarker = 'var ContributorLevels = []Tier{';
+    const startIndex = content.indexOf(startMarker);
+    if (startIndex === -1) {
+        throw new Error(`Could not find start of ContributorLevels array in ${filePath}`);
+    }
+
+    const arrayStart = startIndex + startMarker.length;
+    let depth = 1;
+    let endIndex = -1;
+    for (let i = arrayStart; i < content.length; i++) {
+        if (content[i] === '{') depth++;
+        if (content[i] === '}') depth--;
+        if (depth === 0) {
+            endIndex = i;
+            break;
+        }
+    }
+
+    if (endIndex === -1) {
+        throw new Error(`Could not find end of ContributorLevels array in ${filePath}`);
+    }
+
+    const body = content.substring(arrayStart, endIndex);
+    const tierBlocks = body.match(/\{[\s\S]*?\}/g) || [];
+
+    return tierBlocks.map(block => {
+        const tier = {};
+        const extract = (field, isNumber = false) => {
+            const regex = new RegExp(`${field}:\\s+${isNumber ? '(\\d+)' : '"([^"]+)"'}`);
+            const match = block.match(regex);
+            if (match) {
+                tier[field.charAt(0).toLowerCase() + field.slice(1)] = isNumber ? (isNumber === true ? parseInt(match[1], 10) : match[1]) : match[1];
+            }
+        };
+
+        // In our case MinCoins is a number, Rank is a number.
+        const fields = [
+            { name: 'Rank', isNumber: true },
+            { name: 'Name', isNumber: false },
+            { name: 'Icon', isNumber: false },
+            { name: 'MinCoins', isNumber: true },
+            { name: 'Color', isNumber: false },
+            { name: 'BgClass', isNumber: false },
+            { name: 'TextClass', isNumber: false },
+            { name: 'BorderClass', isNumber: false }
+        ];
+
+        fields.forEach(f => {
+            const fMatch = block.match(new RegExp(`${f.name}:\\s+${f.isNumber ? '(\\d+)' : '"([^"]+)"'}`));
+            if (fMatch) {
+                tier[f.name.charAt(0).toLowerCase() + f.name.slice(1)] = f.isNumber ? parseInt(fMatch[1], 10) : fMatch[1];
+            }
+        });
+
+        return tier;
+    });
 }
 
-/**
- * Split the slice body into individual struct literals. Each element is a
- * balanced `{ ... }` block separated by `,`. A small bracket-depth counter
- * handles this without pulling in a real parser.
- */
-function splitStructLiterals(sliceBody) {
-  const literals = []
-  let depth = 0
-  let current = ''
-  for (const ch of sliceBody) {
-    if (ch === '{') {
-      depth++
-      if (depth === 1) {
-        current = ''
-        continue
-      }
-    } else if (ch === '}') {
-      depth--
-      if (depth === 0) {
-        literals.push(current)
-        current = ''
-        continue
-      }
-    }
-    if (depth >= 1) current += ch
-  }
-  return literals
+const levels = parseGoTiers(GO_FILE);
+
+const tsHeader = '// THIS FILE IS GENERATED BY scripts/gen-rewards-types.mjs. DO NOT EDIT.\n\n';
+const tsInterface = `export interface ContributorLevel {
+  rank: number;
+  name: string;
+  icon: string;
+  minCoins: number;
+  color: string;
+  bgClass: string;
+  textClass: string;
+  borderClass: string;
 }
 
-/**
- * Parse a single struct literal body into a { ts-field: value } object.
- * Field values are either bare integers or double-quoted strings (matching
- * what the Go source uses); anything else is a parser error and we fail
- * loudly rather than emit garbage TS.
- */
-function parseStructLiteral(body) {
-  const out = {}
-  for (const field of TIER_FIELDS) {
-    // Match `FieldName: <value>,` allowing any whitespace. Quoted string
-    // or bare int are the only value shapes we emit, so we accept both.
-    const regex = new RegExp(
-      `${field.go}\\s*:\\s*(?:"((?:[^"\\\\]|\\\\.)*)"|(-?\\d+))\\s*,`,
-    )
-    const match = body.match(regex)
-    if (!match) {
-      throw new Error(
-        `Field ${field.go} not found in tier literal; body was:\n${body.trim()}`,
-      )
-    }
-    if (field.kind === 'string') {
-      if (match[1] === undefined) {
-        throw new Error(`Field ${field.go} expected string literal, got number`)
-      }
-      out[field.ts] = match[1]
+`;
+
+const tsContent = tsHeader + tsInterface + `export const CONTRIBUTOR_LEVELS: ContributorLevel[] = ${JSON.stringify(levels, null, 2)};\n`;
+const netlifyContent = tsHeader + `export const CONTRIBUTOR_LEVELS = ${JSON.stringify(levels, null, 2)};\n`;
+
+const isCheckMode = process.argv.includes('--check');
+
+if (isCheckMode) {
+    let drift = false;
+
+    if (fs.existsSync(TS_FILE)) {
+        const existing = fs.readFileSync(TS_FILE, 'utf8');
+        if (existing !== tsContent) drift = true;
     } else {
-      if (match[2] === undefined) {
-        throw new Error(`Field ${field.go} expected integer literal, got string`)
-      }
-      out[field.ts] = Number.parseInt(match[2], 10)
+        drift = true;
     }
-  }
-  return out
-}
 
-/** Render a single tier object as a TS object literal. */
-function renderTier(tier) {
-  const parts = TIER_FIELDS.map((field) => {
-    const value = tier[field.ts]
-    const rendered =
-      field.kind === 'string'
-        ? JSON.stringify(value) // handles escaping of quotes/backslashes
-        : String(value)
-    return `    ${field.ts}: ${rendered},`
-  })
-  return `  {\n${parts.join('\n')}\n  }`
-}
-
-/** Render the full generated TS file. */
-function renderFile(tiers) {
-  const header = [
-    '// Code generated by scripts/gen-rewards-types.mjs — DO NOT EDIT.',
-    '//',
-    '// Source of truth: pkg/rewards/tiers.go',
-    '// Regenerate with: node scripts/gen-rewards-types.mjs',
-    '//',
-    '// Phase 1 of RFC #8862 moved the canonical contributor-ladder',
-    '// definition to Go. The CI drift check at',
-    '// .github/workflows/rewards-types-drift.yml re-runs the generator and',
-    '// fails the build if this file does not match the Go source.',
-    '',
-    "import type { ContributorLevel } from './rewards'",
-    '',
-  ].join('\n')
-  const body = `export const CONTRIBUTOR_LEVELS_GENERATED: ContributorLevel[] = [\n${tiers
-    .map(renderTier)
-    .join(',\n')},\n]\n`
-  return `${header}\n${body}`
-}
-
-function generate() {
-  const goSource = readFileSync(GO_SOURCE, 'utf8')
-  const sliceBody = extractSliceBody(goSource)
-  const literals = splitStructLiterals(sliceBody)
-  if (literals.length === 0) {
-    throw new Error('Parsed 0 tiers from ContributorLevels — refusing to emit empty file')
-  }
-  const tiers = literals.map(parseStructLiteral)
-  return renderFile(tiers)
-}
-
-function main() {
-  const checkMode = process.argv.includes('--check')
-  const generated = generate()
-
-  if (checkMode) {
-    let existing = ''
-    try {
-      existing = readFileSync(TS_OUTPUT, 'utf8')
-    } catch {
-      // Fall through: empty string will never match a non-empty generated
-      // file, so the mismatch block below reports the problem for us.
+    if (fs.existsSync(NETLIFY_FILE)) {
+        const existing = fs.readFileSync(NETLIFY_FILE, 'utf8');
+        if (existing !== netlifyContent) drift = true;
+    } else {
+        drift = true;
     }
-    if (existing !== generated) {
-      process.stderr.write(
-        `drift detected: ${TS_OUTPUT} is out of sync with ${GO_SOURCE}\n` +
-          `Run: node scripts/gen-rewards-types.mjs\n`,
-      )
-      process.exit(1)
+
+    if (drift) {
+        console.error(`drift detected: ${path.resolve(TS_FILE)} is out of sync with ${path.resolve(GO_FILE)}`);
+        console.log(`Run: node scripts/gen-rewards-types.mjs`);
+        process.exit(1);
     }
-    process.stdout.write(`OK: ${TS_OUTPUT} matches ${GO_SOURCE}\n`)
-    return
-  }
 
-  writeFileSync(TS_OUTPUT, generated)
-  process.stdout.write(`wrote ${TS_OUTPUT}\n`)
+    console.log('✅ Success: Contributor tiers are in sync.');
+} else {
+    fs.writeFileSync(TS_FILE, tsContent);
+    fs.writeFileSync(NETLIFY_FILE, netlifyContent);
+    console.log(`Generated ${TS_FILE}`);
+    console.log(`Generated ${NETLIFY_FILE}`);
 }
-
-main()

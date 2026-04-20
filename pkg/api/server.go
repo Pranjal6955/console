@@ -773,6 +773,16 @@ func (s *Server) setupRoutes() {
 	s.app.Get("/api/public/nightly-e2e/runs", publicLimiter, nightlyE2EPublic.GetRuns)
 	s.app.Get("/api/public/nightly-e2e/run-logs", publicLimiter, nightlyE2EPublic.GetRunLogs)
 
+	// Public contributor-tier badge (RFC #8862 Phase 2). Premium glassmorphic SVG response.
+	// MUST be registered before the /api group so JWTAuth middleware doesn't intercept them.
+	rewardsHandler := handlers.NewRewardsHandler(handlers.RewardsConfig{
+		GitHubToken: s.config.GitHubToken,
+		Orgs:        s.config.RewardsGitHubOrgs,
+	})
+	badgeHandler := handlers.NewBadgeHandler(rewardsHandler)
+	s.app.Get("/api/badge/:github_login", publicLimiter, badgeHandler.GetBadge)
+	s.app.Get("/api/rewards/badge/:github_login", publicLimiter, badgeHandler.GetBadge)
+
 	// Analytics proxies (public — no auth required, have their own origin validation)
 	// MUST be registered before the /api group so JWTAuth middleware doesn't intercept them.
 	// Protected by publicLimiter (#7029) and analyticsBodyGuard (#7030).
@@ -1164,18 +1174,7 @@ func (s *Server) setupRoutes() {
 	api.Get("/benchmarks/reports", benchmarkHandlers.GetReports)
 	api.Get("/benchmarks/reports/stream", benchmarkHandlers.StreamReports)
 
-	// GitHub activity rewards (points for issues/PRs across configured orgs)
-	rewardsHandler := handlers.NewRewardsHandler(handlers.RewardsConfig{
-		GitHubToken: s.config.GitHubToken,
-		Orgs:        s.config.RewardsGitHubOrgs,
-	})
 	api.Get("/rewards/github", rewardsHandler.GetGitHubRewards)
-
-	// Public contributor-tier badge (RFC #8862 Phase 2). Premium glassmorphic SVG response.
-	// Mounted on s.app because the `api` group is gated by JWTAuth.
-	badgeHandler := handlers.NewBadgeHandler(rewardsHandler)
-	s.app.Get("/api/badge/:github_login", publicLimiter, badgeHandler.GetBadge)
-	s.app.Get("/api/rewards/badge/:github_login", publicLimiter, badgeHandler.GetBadge)
 
 	// Persistent per-user reward balances (issue #6011). Every authenticated
 	// user can read and mutate their own row — no RBAC gate needed because
