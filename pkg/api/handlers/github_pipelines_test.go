@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -181,5 +182,93 @@ func TestGHPStreakKind(t *testing.T) {
 			}
 			t.Errorf("ghpStreakKind(%s) = %q, want %q", inStr, got, tc.want)
 		}
+	}
+}
+
+func TestGHPGetRepos(t *testing.T) {
+	// Save and restore original env var
+	oldEnv := os.Getenv("PIPELINE_REPOS")
+	defer func() {
+		if oldEnv == "" {
+			os.Unsetenv("PIPELINE_REPOS")
+		} else {
+			os.Setenv("PIPELINE_REPOS", oldEnv)
+		}
+	}()
+
+	tests := []struct {
+		name     string
+		env      string
+		wantLen  int
+		contains []string
+	}{
+		{
+			name:     "empty env var returns defaults",
+			env:      "",
+			wantLen:  len(ghpDefaultRepos),
+			contains: ghpDefaultRepos,
+		},
+		{
+			name:     "valid repos are parsed",
+			env:      "owner/repo1,owner/repo2",
+			wantLen:  2,
+			contains: []string{"owner/repo1", "owner/repo2"},
+		},
+		{
+			name:     "mix of valid and invalid skips invalid",
+			env:      "owner/repo1,../etc/passwd,owner/repo2",
+			wantLen:  2,
+			contains: []string{"owner/repo1", "owner/repo2"},
+		},
+		{
+			name:     "all invalid returns defaults",
+			env:      "../etc/passwd,noslash,owner/repo/extra",
+			wantLen:  len(ghpDefaultRepos),
+			contains: ghpDefaultRepos,
+		},
+		{
+			name:     "whitespace only returns defaults",
+			env:      "   ,  ,   ",
+			wantLen:  len(ghpDefaultRepos),
+			contains: ghpDefaultRepos,
+		},
+		{
+			name:     "valid repos with extra whitespace are trimmed",
+			env:      "  owner/repo1  ,  owner/repo2  ",
+			wantLen:  2,
+			contains: []string{"owner/repo1", "owner/repo2"},
+		},
+		{
+			name:     "path traversal attempts are skipped",
+			env:      "evil/../passwd,owner/../../repo,owner/repo",
+			wantLen:  1,
+			contains: []string{"owner/repo"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env == "" {
+				os.Unsetenv("PIPELINE_REPOS")
+			} else {
+				os.Setenv("PIPELINE_REPOS", tc.env)
+			}
+			got := ghpGetRepos()
+			if len(got) != tc.wantLen {
+				t.Errorf("ghpGetRepos() length = %d, want %d", len(got), tc.wantLen)
+			}
+			for _, want := range tc.contains {
+				found := false
+				for _, g := range got {
+					if g == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("ghpGetRepos() does not contain %q, got %v", want, got)
+				}
+			}
+		})
 	}
 }

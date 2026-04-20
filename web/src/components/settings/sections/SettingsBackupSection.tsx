@@ -12,23 +12,38 @@ interface SettingsBackupSectionProps {
   onImport: (file: File) => Promise<void>
 }
 
-const STATUS_CONFIG: Record<SyncStatus, { icon: typeof Check; label: string; className: string }> = {
-  idle: { icon: HardDrive, label: 'Initializing...', className: 'text-muted-foreground' },
-  saving: { icon: Loader2, label: 'Saving...', className: 'text-blue-400' },
-  saved: { icon: Check, label: 'Saved', className: 'text-green-400' },
-  error: { icon: AlertCircle, label: 'Save failed', className: 'text-red-400' },
-  offline: { icon: WifiOff, label: 'Backend offline', className: 'text-yellow-400' },
+const STATUS_ICONS: Record<SyncStatus, { icon: typeof Check; className: string }> = {
+  idle: { icon: HardDrive, className: 'text-muted-foreground' },
+  saving: { icon: Loader2, className: 'text-blue-400' },
+  saved: { icon: Check, className: 'text-green-400' },
+  error: { icon: AlertCircle, className: 'text-red-400' },
+  offline: { icon: WifiOff, className: 'text-yellow-400' },
 }
 
-function formatLastSaved(date: Date | null): string {
-  if (!date) return 'Never'
+// Pre-resolved labels passed in from the caller so this helper does not
+// need to depend on i18next's overloaded TFunction generic.
+interface LastSavedLabels {
+  never: string
+  justNow: string
+  secondsAgo: (count: number) => string
+  minutesAgo: (count: number) => string
+}
+// Threshold (seconds) below which we render "Just now" instead of an exact
+// number of seconds. Matches the original hardcoded value.
+const JUST_NOW_THRESHOLD_SEC = 5
+// Boundary for switching from seconds-ago to minutes-ago / minutes-ago to
+// absolute time. 60s in a minute, 60m in an hour.
+const SECONDS_PER_MINUTE = 60
+const MINUTES_PER_HOUR = 60
+function formatLastSaved(date: Date | null, labels: LastSavedLabels): string {
+  if (!date) return labels.never
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffSec = Math.floor(diffMs / 1000)
-  if (diffSec < 5) return 'Just now'
-  if (diffSec < 60) return `${diffSec}s ago`
-  const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m ago`
+  if (diffSec < JUST_NOW_THRESHOLD_SEC) return labels.justNow
+  if (diffSec < SECONDS_PER_MINUTE) return labels.secondsAgo(diffSec)
+  const diffMin = Math.floor(diffSec / SECONDS_PER_MINUTE)
+  if (diffMin < MINUTES_PER_HOUR) return labels.minutesAgo(diffMin)
   return date.toLocaleTimeString()
 }
 
@@ -51,7 +66,15 @@ export function SettingsBackupSection({
     return () => clearTimeout(importSuccessTimerRef.current)
   }, [])
 
-  const status = STATUS_CONFIG[syncStatus]
+  const STATUS_LABELS: Record<SyncStatus, string> = {
+    idle: t('settings.backup.initializing'),
+    saving: t('settings.backup.saving'),
+    saved: t('settings.backup.saved'),
+    error: t('settings.backup.saveFailed'),
+    offline: t('settings.backup.backendOffline'),
+  }
+  const status = STATUS_ICONS[syncStatus]
+  const statusLabel = STATUS_LABELS[syncStatus]
   const StatusIcon = status.icon
 
   const handleExport = async () => {
@@ -108,9 +131,16 @@ export function SettingsBackupSection({
             <div className="flex items-center gap-3">
               <StatusIcon className={`w-4 h-4 ${status.className} ${syncStatus === 'saving' ? 'animate-spin' : ''}`} />
               <div>
-                <p className={`text-sm font-medium ${status.className}`}>{status.label}</p>
+                <p className={`text-sm font-medium ${status.className}`}>{statusLabel}</p>
                 <p className="text-xs text-muted-foreground">
-                  Last saved: {formatLastSaved(lastSaved)}
+                  {t('settings.backup.lastSaved', {
+                    time: formatLastSaved(lastSaved, {
+                      never: t('settings.backup.never'),
+                      justNow: t('settings.backup.justNow'),
+                      secondsAgo: (count: number) => t('settings.backup.secondsAgo', { count }),
+                      minutesAgo: (count: number) => t('settings.backup.minutesAgo', { count }),
+                    }),
+                  })}
                 </p>
               </div>
             </div>

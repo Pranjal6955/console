@@ -203,7 +203,7 @@ export const CARD_TITLES: Record<string, string> = {
   console_ai_issues: 'AI Issues',
   console_ai_kubeconfig_audit: 'AI Kubeconfig Audit',
   console_ai_health_check: 'AI Health Check',
-  console_ai_offline_detection: 'Predictive Health Monitor',
+  console_ai_offline_detection: 'AI Cluster Issue Predictor',
 
   // stock_market_ticker — registered via unified descriptor system
 
@@ -269,12 +269,12 @@ export const CARD_TITLES: Record<string, string> = {
   strimzi_status: 'Strimzi',
   // Flatcar Container Linux
   flatcar_status: 'Flatcar',
+  // Artifact Hub
+  artifact_hub_status: 'Artifact Hub',
   // Fluentd log collector
   fluentd_status: 'Fluentd',
   // Lima VM
   lima_status: 'Lima',
-  // Thanos distributed metrics
-  thanos_status: 'Thanos',
   // OpenFeature feature-flag management
   openfeature_status: 'OpenFeature',
   // OpenKruise advanced workloads
@@ -296,6 +296,8 @@ export const CARD_TITLES: Record<string, string> = {
   deployment_rollout_tracker: 'Deployment Rollout Tracker',
   // KEDA
   keda_status: 'KEDA',
+  // OpenYurt edge computing
+  openyurt_status: 'OpenYurt',
   // Karmada multi-cluster orchestration
   karmada_status: 'Karmada',
   kuberay_fleet: 'KubeRay Fleet',
@@ -510,12 +512,12 @@ export const CARD_DESCRIPTIONS: Record<string, string> = {
   strimzi_status: 'Strimzi runs Apache Kafka on Kubernetes for event streaming and messaging. This card shows Kafka cluster health, topic status, and consumer group lag — helping you spot message backlogs before they cause issues.',
   // Flatcar Container Linux
   flatcar_status: 'Flatcar Container Linux node status, version info, and update readiness.',
+  // Artifact Hub
+  artifact_hub_status: 'Artifact Hub package discovery and repository sync status.',
   // Fluentd log collector
   fluentd_status: 'Fluentd log collector pod health, buffer status, and throughput.',
   // Lima VM
   lima_status: 'Lima VM instance status, resource usage, and configuration.',
-  // Thanos distributed metrics
-  thanos_status: 'Thanos distributed metrics store, compactor, and query health.',
   // OpenFeature feature-flag management
   openfeature_status: 'OpenFeature feature flag provider status and flag evaluation metrics.',
   // OpenKruise advanced workloads
@@ -577,6 +579,8 @@ export const CARD_DESCRIPTIONS: Record<string, string> = {
   keda_status: 'KEDA (Kubernetes Event-Driven Autoscaling) automatically scales workloads based on external event sources like message queues, databases, or custom metrics. This card shows which workloads are being autoscaled, their current triggers, and queue depths.',
   // Keycloak Identity & Access Management
   keycloak_status: 'Keycloak is a CNCF-incubating open-source Identity and Access Management solution. This card monitors the Keycloak Operator health, realm status, active user sessions, and registered clients across your clusters.',
+  // OpenYurt edge computing
+  openyurt_status: 'OpenYurt extends Kubernetes to edge computing scenarios. This card monitors edge node pools, node autonomy status, and Raven gateway connectivity between edge and cloud clusters.',
   // Karmada multi-cluster orchestration
   karmada_status: 'Karmada is a multi-cluster orchestration tool that propagates resources (Deployments, Services, etc.) across multiple clusters using placement policies. This card shows propagation status, member cluster health, and policy compliance.',
   kuberay_fleet: 'Discovers RayCluster, RayService, and RayJob CRDs across all connected clusters. Shows fleet-level Ray workload status including GPU allocations, serving endpoints, and job progress.',

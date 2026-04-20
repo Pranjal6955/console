@@ -1,5 +1,6 @@
 import { useCache } from '../../../lib/cache'
 import { useCardLoadingState } from '../CardDataContext'
+import { useDemoMode } from '../../../hooks/useDemoMode'
 import { KEDA_DEMO_DATA, type KedaDemoData, type KedaScaledObject, type KedaTriggerType } from './demoData'
 import { FETCH_DEFAULT_TIMEOUT_MS } from '../../../lib/constants'
 import { authFetch } from '../../../lib/api'
@@ -219,16 +220,28 @@ export interface UseKedaStatusResult {
   consecutiveFailures: number
   showSkeleton: boolean
   showEmptyState: boolean
+  // Issue 8836: exposed so the card can render a "Last updated X ago" indicator
+  // using the cache-layer refresh timestamp instead of the server-side
+  // lastCheckTime (which does not advance across cache rehydrates).
+  lastRefresh: number | null
+  isDemoFallback: boolean
 }
 
 export function useKedaStatus(): UseKedaStatusResult {
+  // Issue 8836: subscribe to demo mode toggles so the card swaps to demo data
+  // immediately (and shows the Demo badge / yellow outline) when the user
+  // flips demo mode on, instead of only switching when the cache layer falls
+  // back after a fetch failure.
+  const { isDemoMode } = useDemoMode()
+
   const {
-    data,
+    data: liveData,
     isLoading,
     isRefreshing,
     isFailed,
     consecutiveFailures,
     isDemoFallback,
+    lastRefresh,
   } = useCache<KedaStatus>({
     key: CACHE_KEY,
     category: 'default',
@@ -238,12 +251,14 @@ export function useKedaStatus(): UseKedaStatusResult {
     fetcher: fetchKedaStatus,
   })
 
-  const effectiveIsDemoData = isDemoFallback && !isLoading
+  const data = isDemoMode ? KEDA_DEMO_DATA : liveData
+  const effectiveIsDemoData = isDemoMode || (isDemoFallback && !isLoading)
 
   const hasAnyData = (data.operatorPods?.total ?? 0) > 0 || (data.scaledObjects || []).length > 0
 
   const { showSkeleton, showEmptyState } = useCardLoadingState({
-    isLoading,
+    isLoading: isLoading && !isDemoMode,
+    isRefreshing,
     hasAnyData,
     isFailed,
     consecutiveFailures,
@@ -252,11 +267,13 @@ export function useKedaStatus(): UseKedaStatusResult {
 
   return {
     data,
-    loading: isLoading,
+    loading: isLoading && !isDemoMode,
     isRefreshing,
-    error: isFailed && !hasAnyData,
+    error: isFailed && !hasAnyData && !isDemoMode,
     consecutiveFailures,
     showSkeleton,
     showEmptyState,
+    lastRefresh,
+    isDemoFallback: effectiveIsDemoData,
   }
 }

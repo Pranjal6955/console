@@ -14,8 +14,8 @@ import (
 	"sync"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
-	"github.com/kubestellar/console/pkg/api/middleware"
 	"github.com/kubestellar/console/pkg/store"
 )
 
@@ -36,6 +36,11 @@ const (
 	ActionDeleteToken            = "delete_token"
 	ActionCreateResourceQuota    = "create_resource_quota"
 	ActionDeleteResourceQuota    = "delete_resource_quota"
+
+	// Authentication events
+	ActionUserLogin  = "user_login"
+	ActionUserLogout = "user_logout"
+	ActionAuthFailed = "auth_failed"
 )
 
 // storeMu guards the package-level store reference.
@@ -66,7 +71,8 @@ func getStore() store.Store {
 // Store write failures are logged but never propagated to the caller — audit
 // persistence is best-effort so it cannot break request handling.
 func Log(c *fiber.Ctx, action, targetType, targetID string, details ...string) {
-	userID := middleware.GetUserID(c)
+	// Inline GetUserID logic to avoid circular dependency with middleware package
+	userID, _ := c.Locals("userID").(uuid.UUID)
 	ip := c.IP()
 
 	attrs := []any{

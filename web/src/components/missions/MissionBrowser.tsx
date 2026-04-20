@@ -13,7 +13,6 @@ import { cn } from '../../lib/cn'
 import { api } from '../../lib/api'
 import { isDemoMode } from '../../lib/demoMode'
 import { useAuth } from '../../lib/auth'
-import { FETCH_EXTERNAL_TIMEOUT_MS } from '../../lib/constants/network'
 import { matchMissionsToCluster } from '../../lib/missions/matcher'
 import { useClusterContext } from '../../hooks/useClusterContext'
 import {
@@ -42,11 +41,12 @@ import { UnstructuredFilePreview } from './UnstructuredFilePreview'
 import { useTranslation } from 'react-i18next'
 import {
   TreeNodeItem, DirectoryListing, RecommendationCard, EmptyState, MissionFetchErrorBanner,
-  getMissionSlug, getMissionShareUrl, updateNodeInTree, removeNodeFromTree,
+  getMissionShareUrl, updateNodeInTree, removeNodeFromTree,
   missionCache, startMissionCacheFetch, resetMissionCache,
   fetchMissionContent, BROWSER_TABS,
   VirtualizedMissionGrid,
-  getCachedRecommendations, setCachedRecommendations } from './browser'
+  getCachedRecommendations, setCachedRecommendations,
+  fetchTreeChildren, fetchDirectoryEntries, fetchNodeFileContent } from './browser'
 import type { TreeNode, ViewMode, BrowserTab } from './browser'
 import { copyToClipboard } from '../../lib/clipboard'
 import { useToast } from '../ui/Toast'
@@ -54,7 +54,6 @@ import {
   CATEGORY_FILTERS,
   SIDEBAR_WIDTH,
   MISSION_FILE_ACCEPT,
-  isHiddenEntry,
   isMissionFile,
   CNCF_CATEGORIES,
   MATURITY_LEVELS,
@@ -63,6 +62,21 @@ import {
   loadWatchedPaths,
   saveWatchedPaths,
 } from './missionBrowserConstants'
+import {
+  filterInstallers,
+  filterFixers,
+  computeFacetCounts,
+  filterRecommendations,
+} from './missionBrowserFilters'
+import {
+  HIGH_CONFIDENCE_THRESHOLD,
+  toWordSet,
+  findBestDeepLinkMatch,
+} from './missionBrowserDeepLink'
+import {
+  computeActiveFilterCount,
+  filterDirectoryEntries,
+} from './missionBrowserFilterState'
 
 // ============================================================================
 // Types
@@ -407,68 +421,14 @@ export function MissionBrowser({ isOpen, onClose, onImport, initialMission, onUs
     const slug = deepLinkSlugRef.current
     if (!slug || !isOpen || selectedMission) return
 
-    /**
-     * Fuzzy deep-link matching: converts both the URL slug and mission metadata
-     * into normalized word-sets so that `/missions/install-open-policy-agent-opa`
-     * can match a mission titled "Install and Configure Open Policy Agent Opa-".
-     *
-     * Strategy (in priority order):
-     *  1. Exact slug match (`getMissionSlug(m) === slug`)
-     *  2. cncfProject match (strip "install-" prefix from slug)
-     *  3. Fuzzy word-overlap: extract meaningful words from the slug and from
-     *     the mission title+cncfProject, then pick the mission whose word
-     *     overlap ratio is highest (≥ threshold).
-     */
-    const FILLER_WORDS = new Set(['and', 'on', 'for', 'the', 'in', 'with', 'a', 'an', 'to', 'of', 'kubernetes', 'k8s'])
-    const MIN_WORD_OVERLAP_RATIO = 0.6
-
-    /** Extract unique meaningful lowercase words, stripping filler and short fragments */
-    const toWordSet = (s: string): Set<string> =>
-      new Set(
-        s.toLowerCase()
-          .replace(/[^a-z0-9]+/g, ' ')
-          .split(' ')
-          .filter((w) => w.length > 1 && !FILLER_WORDS.has(w))
-      )
-
+    // Fuzzy deep-link matching: converts both the URL slug and mission metadata
+    // into normalized word-sets so that `/missions/install-open-policy-agent-opa`
+    // can match a mission titled "Install and Configure Open Policy Agent Opa-".
+    // Pure helpers live in `./missionBrowserDeepLink`.
     const slugWordSet = toWordSet(slug)
 
-    /** Score how well a mission matches the deep-link slug (0–1) */
-    const scoreMission = (m: MissionExport, isInstaller: boolean): number => {
-      // Exact slug match
-      if (getMissionSlug(m) === slug) return 1
-
-      // cncfProject match (installers only — fixers use slug/title matching)
-      if (isInstaller) {
-        const project = (m.cncfProject || '').toLowerCase()
-        const slugProject = slug.replace(/^install-/, '')
-        if (project && (project === slugProject || project === slug)) return 0.95
-      }
-
-      // Fuzzy word-overlap (set intersection) on title + cncfProject
-      const missionWordSet = toWordSet(`${m.title || ''} ${m.cncfProject || ''}`)
-      if (slugWordSet.size === 0 || missionWordSet.size === 0) return 0
-      let matched = 0
-      for (const w of slugWordSet) { if (missionWordSet.has(w)) matched++ }
-      return matched / slugWordSet.size
-    }
-
-    /** Minimum score to permanently consume the deep-link ref (#5654) */
-    const HIGH_CONFIDENCE_THRESHOLD = 0.9
-
-    /** Find best-scoring mission at or above threshold in a list */
-    const findBest = (list: MissionExport[], isInstaller: boolean): { match?: MissionExport; score: number } => {
-      let best: MissionExport | undefined
-      let bestScore = MIN_WORD_OVERLAP_RATIO
-      for (const m of list) {
-        const score = scoreMission(m, isInstaller)
-        if (score >= bestScore) { best = m; bestScore = score }
-      }
-      return { match: best, score: bestScore }
-    }
-
     // Search installers first, then fixers
-    const installer = findBest(installerMissions, true)
+    const installer = findBestDeepLinkMatch(installerMissions, slug, slugWordSet, true)
     if (installer.match) {
       setActiveTab('installers')
       selectCardMission(installer.match)
@@ -478,7 +438,7 @@ export function MissionBrowser({ isOpen, onClose, onImport, initialMission, onUs
       return
     }
 
-    const fixer = findBest(fixerMissions, false)
+    const fixer = findBestDeepLinkMatch(fixerMissions, slug, slugWordSet, false)
     if (fixer.match) {
       setActiveTab('fixes')
       selectCardMission(fixer.match)
@@ -515,42 +475,16 @@ export function MissionBrowser({ isOpen, onClose, onImport, initialMission, onUs
     if (value && searchQuery) setSearchQuery('')
   }
 
-  // AND search: each space-separated term must match somewhere in the mission
-  const andMatch = (text: string, query: string) => {
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
-    const lower = text.toLowerCase()
-    return terms.every(term => lower.includes(term))
-  }
+  const filteredInstallers = filterInstallers(installerMissions, {
+    categoryFilter: installerCategoryFilter,
+    maturityFilter: installerMaturityFilter,
+    search: effectiveInstallerSearch,
+  })
 
-  const matchesMission = (m: MissionExport, query: string) => {
-    const haystack = [m.title || '', m.description || '', ...(m.tags || [])].join(' ')
-    return andMatch(haystack, query)
-  }
-
-  const filteredInstallers = (() => {
-    let list = installerMissions
-    if (installerCategoryFilter !== 'All') {
-      list = list.filter(m => m.category === installerCategoryFilter)
-    }
-    if (installerMaturityFilter !== 'All') {
-      list = list.filter(m => m.tags?.includes(installerMaturityFilter))
-    }
-    if (effectiveInstallerSearch) {
-      list = list.filter(m => matchesMission(m, effectiveInstallerSearch))
-    }
-    return list
-  })()
-
-  const filteredFixers = (() => {
-    let list = fixerMissions
-    if (fixerTypeFilter !== 'All') {
-      list = list.filter(m => m.type === fixerTypeFilter.toLowerCase())
-    }
-    if (effectiveFixerSearch) {
-      list = list.filter(m => matchesMission(m, effectiveFixerSearch))
-    }
-    return list
-  })()
+  const filteredFixers = filterFixers(fixerMissions, {
+    typeFilter: fixerTypeFilter,
+    search: effectiveFixerSearch,
+  })
 
   // ============================================================================
   // Tree expansion & lazy loading
@@ -578,88 +512,7 @@ export function MissionBrowser({ isOpen, onClose, onImport, initialMission, onUs
       )
 
       try {
-        let children: TreeNode[] = []
-
-        if (node.source === 'community') {
-          const { data: entries } = await api.get<BrowseEntry[]>(
-            `/api/missions/browse?path=${encodeURIComponent(node.path)}`
-          )
-          // Backend already filters infra/metadata, but guard client-side too.
-          // #6421 — filter ALL dot-prefixed entries (directories AND files).
-          children = entries
-            .filter(e => !isHiddenEntry(e.name))
-            .map((e) => ({
-              id: `${nodeId}/${e.name}`,
-              name: e.name,
-              path: e.path,
-              type: e.type,
-              source: 'community' as const,
-              loaded: e.type === 'file',
-              description: e.description }))
-        } else if (node.source === 'github') {
-          if (nodeId === 'github') {
-            // Root "My Repositories" node — list user's repos
-            const { data: repos } = await api.get<Array<{ name: string; full_name: string }>>(
-              '/api/github/repos?hasMissionsDir=true'
-            )
-            children = repos.map((r) => ({
-              id: `github/${r.full_name}`,
-              name: r.name,
-              path: r.full_name,
-              type: 'directory' as const,
-              source: 'github' as const,
-              loaded: false,
-              description: r.full_name }))
-          } else if (nodeId === 'kubara' || nodeId.startsWith('kubara/')) {
-            // Static Kubara catalog (cached, no API calls). Used in demo mode
-            // AND in real mode — the list is curated and doesn't change often,
-            // and the live GitHub Contents API path requires a per-user
-            // GitHub OAuth token that not every user has wired up. Without
-            // this branch the node was empty for non-demo users.
-            if (nodeId === 'kubara') {
-              children = [
-                'kube-prometheus-stack', 'cert-manager', 'kyverno', 'kyverno-policies',
-                'argo-cd', 'external-secrets', 'loki', 'longhorn', 'metallb', 'traefik',
-              ].map(name => ({
-                id: `kubara/${name}`,
-                name,
-                path: `go-binary/templates/embedded/managed-service-catalog/helm/${name}`,
-                type: 'directory' as const,
-                source: 'github' as const,
-                repoOwner: 'kubara-io',
-                repoName: 'kubara',
-                loaded: false,
-              }))
-            } else {
-              children = ['Chart.yaml', 'values.yaml', 'templates'].map(fname => ({
-                id: `${nodeId}/${fname}`,
-                name: fname,
-                path: `${node.path}/${fname}`,
-                type: (fname === 'templates' ? 'directory' : 'file') as TreeNode['type'],
-                source: 'github' as const,
-                repoOwner: 'kubara-io',
-                repoName: 'kubara',
-                loaded: fname !== 'templates',
-              }))
-            }
-          } else {
-            // Specific repo node — list repo contents via GitHub Contents API
-            const repoPath = node.path
-            const { data: ghEntries } = await api.get<Array<{ name: string; path: string; type: string; size?: number }>>(
-              `/api/github/repos/${repoPath}/contents`
-            )
-            children = (ghEntries || [])
-              .filter(e => e.type === 'dir' || isMissionFile(e.name))
-              .map(e => ({
-                id: `${nodeId}/${e.name}`,
-                name: e.name,
-                path: `${repoPath.split('/').slice(0, 2).join('/')}/${e.path}`,
-                type: (e.type === 'dir' ? 'directory' : 'file') as TreeNode['type'],
-                source: 'github' as const,
-                loaded: e.type !== 'dir',
-                description: e.size ? `${e.size} bytes` : undefined }))
-          }
-        }
+        const children = await fetchTreeChildren(node)
 
         // For community sub-directories (not root): if no missions remain after filtering,
         // mark the node as empty and remove it from the parent's children so
@@ -705,38 +558,7 @@ export function MissionBrowser({ isOpen, onClose, onImport, initialMission, onUs
       emitFixerBrowsed(node.path)
       setLoading(true)
       try {
-        if (node.source === 'community') {
-          const { data: entries } = await api.get<BrowseEntry[]>(
-            `/api/missions/browse?path=${encodeURIComponent(node.path)}`
-          )
-          // #6421 — Hide dot-prefixed entries and the index.json manifest.
-          // Only mission files or directories may appear in the listing.
-          setDirectoryEntries(
-            entries.filter(e =>
-              !isHiddenEntry(e.name) &&
-              (e.type === 'directory' || isMissionFile(e.name))
-            )
-          )
-        } else if (node.source === 'github') {
-          // Fetch repo contents via GitHub Contents API proxy
-          const owner = node.repoOwner || node.path.split('/')[0]
-          const repo = node.repoName || node.path.split('/')[1]
-          const subPath = node.repoOwner ? node.path : node.path.split('/').slice(2).join('/')
-          const apiPath = subPath
-            ? `/api/github/repos/${owner}/${repo}/contents/${subPath}`
-            : `/api/github/repos/${owner}/${repo}/contents/`
-          const { data: ghEntries } = await api.get<Array<{ name: string; path: string; type: string; size?: number }>>(apiPath)
-          const entries: BrowseEntry[] = (ghEntries || [])
-            .filter(e => e.type === 'dir' || isMissionFile(e.name))
-            .map(e => ({
-              name: e.name,
-              path: node.repoOwner ? e.path : `${owner}/${repo}/${e.path}`,
-              type: e.type === 'dir' ? 'directory' as const : 'file' as const,
-              size: e.size }))
-          setDirectoryEntries(entries)
-        } else {
-          setDirectoryEntries([])
-        }
+        setDirectoryEntries(await fetchDirectoryEntries(node))
       } catch {
         setDirectoryEntries([])
       } finally {
@@ -746,50 +568,10 @@ export function MissionBrowser({ isOpen, onClose, onImport, initialMission, onUs
       // File selected → fetch and preview
       setLoading(true)
       try {
-        let content: string
-        if (node.source === 'community') {
-          const { data } = await api.get<string>(
-            `/api/missions/file?path=${encodeURIComponent(node.path)}`
-          )
-          content = data
-        } else if (node.source === 'github') {
-          // Serve canned sample content for kubara/* nodes instead of hitting
-          // the GitHub Contents API — avoids per-file rate-limit burn when a
-          // user expands a chart tree.
-          if (node.id.startsWith('kubara/')) {
-            const chartName = node.id.split('/')[1] || 'chart'
-            if (node.name === 'Chart.yaml') {
-              content = `apiVersion: v2\nname: ${chartName}\ndescription: Production-tested ${chartName} Helm chart from Kubara\nversion: 1.0.0\ntype: application\nappVersion: "latest"\nmaintainers:\n  - name: kubara-io\n    url: https://github.com/kubara-io/kubara`
-            } else if (node.name === 'values.yaml') {
-              content = `# ${chartName} — Kubara production values\n# These values are tested in production environments\n# See https://github.com/kubara-io/kubara for details\n\nreplicaCount: 2\n\nresources:\n  requests:\n    cpu: 100m\n    memory: 128Mi\n  limits:\n    cpu: 500m\n    memory: 512Mi\n\nserviceAccount:\n  create: true\n\npodSecurityContext:\n  runAsNonRoot: true\n  fsGroup: 65534\n\nmonitoring:\n  enabled: true\n  serviceMonitor:\n    enabled: true`
-            } else {
-              content = `# ${node.name}\n# Kubara template file`
-            }
-          } else {
-          // Fetch raw file content via GitHub Contents API proxy
-          const parts = node.path.split('/')
-          const owner = parts[0]
-          const repo = parts[1]
-          const filePath = parts.slice(2).join('/')
-          const { data: ghFile } = await api.get<{ content?: string; encoding?: string; download_url?: string }>(
-            `/api/github/repos/${owner}/${repo}/contents/${filePath}`
-          )
-          // GitHub returns base64-encoded content for files
-          if (ghFile.content && ghFile.encoding === 'base64') {
-            content = atob(ghFile.content.replace(/\n/g, ''))
-          } else if (ghFile.download_url) {
-            const rawResp = await fetch(ghFile.download_url, {
-              signal: AbortSignal.timeout(FETCH_EXTERNAL_TIMEOUT_MS) })
-            content = await rawResp.text()
-          } else {
-            content = JSON.stringify(ghFile)
-          }
-          }
-        } else {
-          return
-        }
+        const content = await fetchNodeFileContent(node)
+        if (content === null) return
 
-        const raw = typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+        const raw = content
         setRawContent(raw)
         setUnstructuredContent(null)
 
@@ -989,68 +771,25 @@ export function MissionBrowser({ isOpen, onClose, onImport, initialMission, onUs
   // Filtered directory entries
   // ============================================================================
 
-  const filteredEntries = (() => {
-    let entries = directoryEntries
-
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      entries = entries.filter(
-        (e) =>
-          e.name.toLowerCase().includes(q) ||
-          e.description?.toLowerCase().includes(q)
-      )
-    }
-
-    return entries
-  })()
+  const filteredEntries = filterDirectoryEntries(directoryEntries, searchQuery)
 
   // ============================================================================
   // Filtered recommendations
   // ============================================================================
 
   // Compute dynamic facet counts from unfiltered recommendations
-  const facetCounts = useMemo(() => {
-    const tags = new Map<string, number>()
-    const maturity = new Map<string, number>()
-    const difficulty = new Map<string, number>()
-    const missionClass = new Map<string, number>()
-    let clusterMatched = 0
-    let community = 0
+  const facetCounts = useMemo(() => computeFacetCounts(recommendations), [recommendations])
 
-    for (const r of recommendations) {
-      if (r.score > 1) clusterMatched++
-      else community++
-      const mat = r.mission.metadata?.maturity || 'unknown'
-      maturity.set(mat, (maturity.get(mat) || 0) + 1)
-      const diff = r.mission.difficulty || 'unspecified'
-      difficulty.set(diff, (difficulty.get(diff) || 0) + 1)
-      const cls = r.mission.missionClass || 'unspecified'
-      missionClass.set(cls, (missionClass.get(cls) || 0) + 1)
-      for (const tag of (r.mission.tags || [])) {
-        const t = tag.toLowerCase()
-        tags.set(t, (tags.get(t) || 0) + 1)
-      }
-    }
-    const topTags = [...tags.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 12)
-      .map(([tag, count]: [string, number]) => ({ tag, count }))
-
-    return { clusterMatched, community, maturity, difficulty, missionClass, topTags }
-  }, [recommendations])
-
-  const activeFilterCount = (() => {
-    let count = 0
-    if (minMatchPercent > 0) count++
-    if (categoryFilter !== 'All') count++
-    if (matchSourceFilter !== 'all') count++
-    if (maturityFilter !== 'All') count++
-    if (missionClassFilter !== 'All') count++
-    if (difficultyFilter !== 'All') count++
-    if (selectedTags.size > 0) count++
-    if (cncfFilter) count++
-    return count
-  })()
+  const activeFilterCount = computeActiveFilterCount({
+    minMatchPercent,
+    categoryFilter,
+    matchSourceFilter,
+    maturityFilter,
+    missionClassFilter,
+    difficultyFilter,
+    selectedTags,
+    cncfFilter,
+  })
 
   const clearAllFilters = () => {
     setMinMatchPercent(0)
@@ -1064,62 +803,20 @@ export function MissionBrowser({ isOpen, onClose, onImport, initialMission, onUs
     setSearchQuery('')
   }
 
-  const filteredRecommendations = useMemo(() => {
-    let recs = recommendations
-
-    if (minMatchPercent > 0) {
-      recs = recs.filter((r) => r.matchPercent >= minMatchPercent)
-    }
-
-    if (matchSourceFilter === 'cluster') {
-      recs = recs.filter((r) => r.score > 1)
-    } else if (matchSourceFilter === 'community') {
-      recs = recs.filter((r) => r.score <= 1)
-    }
-
-    if (categoryFilter !== 'All') {
-      recs = recs.filter(
-        (r) => (r.mission.type || '').toLowerCase() === categoryFilter.toLowerCase()
-      )
-    }
-
-    if (maturityFilter !== 'All') {
-      recs = recs.filter((r) => (r.mission.metadata?.maturity || 'unknown').toLowerCase() === maturityFilter.toLowerCase())
-    }
-
-    if (missionClassFilter !== 'All') {
-      recs = recs.filter((r) => (r.mission.missionClass || 'unspecified').toLowerCase() === missionClassFilter.toLowerCase())
-    }
-
-    if (difficultyFilter !== 'All') {
-      recs = recs.filter((r) => (r.mission.difficulty || 'unspecified').toLowerCase() === difficultyFilter.toLowerCase())
-    }
-
-    if (selectedTags.size > 0) {
-      recs = recs.filter((r) =>
-        (r.mission.tags || []).some((tag) => selectedTags.has(tag.toLowerCase()))
-      )
-    }
-
-    if (cncfFilter) {
-      const q = cncfFilter.toLowerCase()
-      recs = recs.filter(
-        (r) => r.mission.cncfProject?.toLowerCase().includes(q)
-      )
-    }
-
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      recs = recs.filter(
-        (r) =>
-          (r.mission.title || '').toLowerCase().includes(q) ||
-          (r.mission.description || '').toLowerCase().includes(q) ||
-          (r.mission.tags || []).some((tag) => tag.toLowerCase().includes(q))
-      )
-    }
-
-    return recs
-  }, [recommendations, categoryFilter, cncfFilter, searchQuery, minMatchPercent, matchSourceFilter, maturityFilter, missionClassFilter, difficultyFilter, selectedTags])
+  const filteredRecommendations = useMemo(
+    () => filterRecommendations(recommendations, {
+      minMatchPercent,
+      matchSourceFilter,
+      categoryFilter,
+      maturityFilter,
+      missionClassFilter,
+      difficultyFilter,
+      selectedTags,
+      cncfFilter,
+      searchQuery,
+    }),
+    [recommendations, categoryFilter, cncfFilter, searchQuery, minMatchPercent, matchSourceFilter, maturityFilter, missionClassFilter, difficultyFilter, selectedTags],
+  )
 
   // ============================================================================
   // Keyboard

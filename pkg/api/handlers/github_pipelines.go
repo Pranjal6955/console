@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
@@ -32,6 +33,7 @@ import (
 
 const (
 	ghpCacheTTL              = 2 * time.Minute
+	ghpCacheStaleTTL         = 1 * time.Hour // Serve stale data for 1h after expiration when GitHub rate-limits
 	ghpMatrixDefaultDays     = 14
 	ghpMatrixMaxDays         = 90
 	ghpHistoryRetentionDays  = 90
@@ -75,6 +77,10 @@ func ghpGetRepos() []string {
 	for _, s := range strings.Split(env, ",") {
 		s = strings.TrimSpace(s)
 		if s != "" {
+			if !ghpValidRepoPattern.MatchString(s) {
+				slog.Warn("[GitHubPipelines] Invalid repo slug in PIPELINE_REPOS, skipping", "repo", s)
+				continue
+			}
 			repos = append(repos, s)
 		}
 	}
@@ -86,6 +92,11 @@ func ghpGetRepos() []string {
 
 // ghpRepos is populated once at init from PIPELINE_REPOS env var.
 var ghpRepos = ghpGetRepos()
+
+// ghpRateLimitHeadersKey is the context key for storing GitHub API rate limit headers.
+type ghpContextKey string
+
+const ghpRateLimitHeadersKey ghpContextKey = "rateLimitHeaders"
 
 // ghpValidRepoPattern enforces strict owner/repo format to prevent path
 // traversal — the repo value is interpolated into GitHub API paths.
@@ -366,6 +377,29 @@ func NewGitHubPipelinesHandler(githubToken string) *GitHubPipelinesHandler {
 	}
 }
 
+// HandleHealth validates the GitHub token by calling GitHub's /user endpoint.
+// Returns 503 if token is missing or invalid, 200 if token is valid.
+func (h *GitHubPipelinesHandler) HandleHealth(c *fiber.Ctx) error {
+	if h.token == "" {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "GITHUB_TOKEN not configured"})
+	}
+
+	ctx, cancel := context.WithTimeout(c.UserContext(), 10*time.Second)
+	defer cancel()
+
+	res, err := h.ghGet(ctx, "/user")
+	if err != nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "GitHub token validation failed"})
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode >= 400 {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "GitHub token validation failed"})
+	}
+
+	return c.JSON(fiber.Map{"status": "ok"})
+}
+
 // Serve routes a request to the right view.
 func (h *GitHubPipelinesHandler) Serve(c *fiber.Ctx) error {
 	view := c.Query("view", "pulse")
@@ -436,6 +470,15 @@ func (h *GitHubPipelinesHandler) serveCached(c *fiber.Ctx, key string, build fun
 		return build(c)
 	})
 	if err != nil {
+		// Try stale cache for GitHub API failures (rate limits, network errors)
+		if stale := h.getStale(key); stale != nil {
+			slog.Info("[github-pipelines] serving stale cache on error", "key", key, "error", err)
+			c.Set("X-Cache", "STALE")
+			c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
+			c.Set(fiber.HeaderCacheControl, fmt.Sprintf("public, max-age=%d", int(ghpCacheTTL.Seconds())))
+			return c.Send(stale.body)
+		}
+		// No stale available - return error
 		// Distinguish client-validation errors (unknown repo, bad params) from
 		// upstream GitHub failures so callers get the correct HTTP status.
 		status := fiber.StatusBadGateway
@@ -474,7 +517,33 @@ func (h *GitHubPipelinesHandler) serveCached(c *fiber.Ctx, key string, build fun
 	c.Set("X-Cache", "MISS")
 	c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
 	c.Set(fiber.HeaderCacheControl, fmt.Sprintf("public, max-age=%d", int(ghpCacheTTL.Seconds())))
+	// Forward GitHub rate limit headers from context if present
+	if headers, ok := c.UserContext().Value(ghpRateLimitHeadersKey).(map[string]string); ok {
+		for k, v := range headers {
+			c.Set(k, v)
+		}
+	}
 	return c.Send(body)
+}
+
+// getStale returns a cached entry even if expired, as long as it is within ghpCacheStaleTTL.
+// Used to serve stale data when GitHub rate-limits us — better than an error.
+func (h *GitHubPipelinesHandler) getStale(key string) *ghpCacheEntry {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	entry, ok := h.cache[key]
+	if !ok {
+		return nil
+	}
+	// Check if entry is within stale window (exp - TTL + staleTTL)
+	staleCutoff := entry.exp.Add(-ghpCacheTTL).Add(ghpCacheStaleTTL)
+	if time.Now().After(staleCutoff) {
+		return nil
+	}
+	// Return a copy to prevent mutation after lock release
+	// Note: cache stores values (not pointers like missions.go), so we create a new entry
+	cp := entry
+	return &cp
 }
 
 // ---------------------------------------------------------------------------
@@ -482,6 +551,8 @@ func (h *GitHubPipelinesHandler) serveCached(c *fiber.Ctx, key string, build fun
 // ---------------------------------------------------------------------------
 
 func (h *GitHubPipelinesHandler) ghGet(ctx context.Context, path string) (*http.Response, error) {
+	ctx, cancel := context.WithTimeout(ctx, ghpHTTPTimeout)
+	defer cancel()
 	url := path
 	if !strings.HasPrefix(url, "http") {
 		url = ghpGitHubAPIBase + path
@@ -493,6 +564,41 @@ func (h *GitHubPipelinesHandler) ghGet(ctx context.Context, path string) (*http.
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("Authorization", "Bearer "+h.token)
 	return h.httpClient.Do(req)
+}
+
+// ghpStoreRateLimitHeaders stores GitHub API rate limit headers in the context
+// for later forwarding to the client response.
+func ghpStoreRateLimitHeaders(ctx context.Context, resp *http.Response) context.Context {
+	headers := make(map[string]string)
+	for _, header := range []string{
+		"X-RateLimit-Limit",
+		"X-RateLimit-Remaining",
+		"X-RateLimit-Reset",
+		"X-RateLimit-Used",
+	} {
+		if v := resp.Header.Get(header); v != "" {
+			headers[header] = v
+		}
+	}
+	if len(headers) > 0 {
+		return context.WithValue(ctx, ghpRateLimitHeadersKey, headers)
+	}
+	return ctx
+}
+
+// ghpForwardRateLimitHeaders forwards GitHub API rate limit headers from
+// the context to the fiber response.
+func ghpForwardRateLimitHeaders(c *fiber.Ctx, resp *http.Response) {
+	for _, header := range []string{
+		"X-RateLimit-Limit",
+		"X-RateLimit-Remaining",
+		"X-RateLimit-Reset",
+		"X-RateLimit-Used",
+	} {
+		if v := resp.Header.Get(header); v != "" {
+			c.Set(header, v)
+		}
+	}
 }
 
 // workflowRunsRaw is the subset of GitHub's workflow_run JSON we consume.
@@ -603,6 +709,8 @@ func (h *GitHubPipelinesHandler) fetchRuns(ctx context.Context, repo, query stri
 			res.Body.Close()
 			return out, fmt.Errorf("github %d: %s", res.StatusCode, string(body))
 		}
+		// Store rate limit headers from the last successful API call
+		ctx = ghpStoreRateLimitHeaders(ctx, res)
 		var data struct {
 			WorkflowRuns []workflowRunRaw `json:"workflow_runs"`
 		}
@@ -640,6 +748,8 @@ func (h *GitHubPipelinesHandler) fetchWorkflowRuns(ctx context.Context, repo, wo
 		body, _ := io.ReadAll(io.LimitReader(res.Body, ghpMaxErrorBodyBytes))
 		return nil, fmt.Errorf("github %d: %s", res.StatusCode, string(body))
 	}
+	// Store rate limit headers from the successful API call
+	ctx = ghpStoreRateLimitHeaders(ctx, res)
 	var data struct {
 		WorkflowRuns []workflowRunRaw `json:"workflow_runs"`
 	}
@@ -663,6 +773,8 @@ func (h *GitHubPipelinesHandler) fetchJobs(ctx context.Context, repo string, run
 		body, _ := io.ReadAll(io.LimitReader(res.Body, ghpMaxErrorBodyBytes))
 		return nil, fmt.Errorf("github %d: %s", res.StatusCode, string(body))
 	}
+	// Store rate limit headers from the successful API call
+	ctx = ghpStoreRateLimitHeaders(ctx, res)
 	var data struct {
 		Jobs []struct {
 			ID          int64   `json:"id"`
@@ -745,6 +857,8 @@ func (h *GitHubPipelinesHandler) buildPulse(c *fiber.Ctx) (any, error) {
 	if relErr == nil {
 		defer relRes.Body.Close()
 		if relRes.StatusCode == http.StatusOK {
+			// Store rate limit headers from the successful API call
+			ctx = ghpStoreRateLimitHeaders(ctx, relRes)
 			var arr []struct {
 				TagName     string  `json:"tag_name"`
 				PublishedAt *string `json:"published_at"`
@@ -795,6 +909,8 @@ func (h *GitHubPipelinesHandler) buildPulse(c *fiber.Ctx) (any, error) {
 	if tagErr == nil {
 		defer tagRes.Body.Close()
 		if tagRes.StatusCode == http.StatusOK {
+			// Store rate limit headers from the successful API call
+			ctx = ghpStoreRateLimitHeaders(ctx, tagRes)
 			var tags []struct {
 				Name string `json:"name"`
 			}
@@ -820,6 +936,8 @@ func (h *GitHubPipelinesHandler) buildPulse(c *fiber.Ctx) (any, error) {
 	if weeklyErr == nil {
 		defer weeklyRes.Body.Close()
 		if weeklyRes.StatusCode == http.StatusOK {
+			// Store rate limit headers from the successful API call
+			ctx = ghpStoreRateLimitHeaders(ctx, weeklyRes)
 			var latest struct {
 				TagName string `json:"tag_name"`
 			}
@@ -1145,6 +1263,8 @@ func (h *GitHubPipelinesHandler) handleLog(c *fiber.Ctx) error {
 	if res.StatusCode >= 400 {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": fmt.Sprintf("github %d", res.StatusCode)})
 	}
+	// Forward GitHub rate limit headers directly since we have fiber.Ctx access
+	ghpForwardRateLimitHeaders(c, res)
 	body, err := io.ReadAll(io.LimitReader(res.Body, ghpMaxLogBytes))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "read failed"})

@@ -11,6 +11,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"github.com/kubestellar/console/pkg/api/audit"
 )
 
 const (
@@ -428,6 +430,7 @@ func JWTAuth(secret string) fiber.Handler {
 
 		if tokenString == "" {
 			slog.Info("[Auth] missing authorization", "path", c.Path())
+			audit.Log(c, audit.ActionAuthFailed, "endpoint", c.Path(), "missing_authorization")
 			return fiber.NewError(fiber.StatusUnauthorized, "Missing authorization")
 		}
 
@@ -460,17 +463,20 @@ func JWTAuth(secret string) fiber.Handler {
 
 		if err != nil {
 			slog.Error("[Auth] token parse error", "path", c.Path(), "error", err)
+			audit.Log(c, audit.ActionAuthFailed, "endpoint", c.Path(), "token_parse_error")
 			return fiber.NewError(fiber.StatusUnauthorized, "Invalid token")
 		}
 
 		if !token.Valid {
 			slog.Info("[Auth] invalid token", "path", c.Path())
+			audit.Log(c, audit.ActionAuthFailed, "endpoint", c.Path(), "invalid_token")
 			return fiber.NewError(fiber.StatusUnauthorized, "Invalid token")
 		}
 
 		claims, ok := token.Claims.(*UserClaims)
 		if !ok {
 			slog.Info("[Auth] invalid token claims", "path", c.Path())
+			audit.Log(c, audit.ActionAuthFailed, "endpoint", c.Path(), "invalid_claims")
 			return fiber.NewError(fiber.StatusUnauthorized, "Invalid token claims")
 		}
 
@@ -487,6 +493,7 @@ func JWTAuth(secret string) fiber.Handler {
 			}
 			if revoked {
 				slog.Info("[Auth] revoked token used", "path", c.Path())
+				audit.Log(c, audit.ActionAuthFailed, "endpoint", c.Path(), "revoked_token")
 				return fiber.NewError(fiber.StatusUnauthorized, "Token has been revoked")
 			}
 		}

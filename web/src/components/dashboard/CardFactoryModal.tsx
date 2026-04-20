@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   X, Plus, Code, Layers, Wand2, Eye, Save, Sparkles,
-  AlertTriangle, CheckCircle, Loader2, Trash2 } from 'lucide-react'
+  AlertTriangle, CheckCircle, Loader2 } from 'lucide-react'
 import { BaseModal, ConfirmDialog } from '../../lib/modals'
 import { cn } from '../../lib/cn'
 import { saveDynamicCard, deleteDynamicCard, getAllDynamicCards } from '../../lib/dynamic-cards'
@@ -12,21 +12,20 @@ import type {
   DynamicCardDefinition_T1,
   DynamicCardColumn } from '../../lib/dynamic-cards/types'
 import { registerDynamicCardType } from '../cards/cardRegistry'
-import { AiGenerationPanel } from './AiGenerationPanel'
 import { LivePreviewPanel } from './LivePreviewPanel'
 import { InlineAIAssist } from './InlineAIAssist'
-import { CARD_T1_SYSTEM_PROMPT, CARD_T2_SYSTEM_PROMPT, CARD_INLINE_ASSIST_PROMPT, CODE_INLINE_ASSIST_PROMPT } from '../../lib/ai/prompts'
-import { generateSampleData, detectFieldFormat } from '../../lib/ai/sampleData'
-import { useAIMode } from '../../hooks/useAIMode'
-import { wrapAbbreviations } from '../shared/TechnicalAcronym'
+import { CARD_INLINE_ASSIST_PROMPT, CODE_INLINE_ASSIST_PROMPT } from '../../lib/ai/prompts'
+import { generateSampleData } from '../../lib/ai/sampleData'
 import { T1_TEMPLATES, type T1Template } from './cardFactoryTemplates'
-import { TemplateDropdown, T1Preview, T2Preview } from './cardFactoryPreviews'
+import { TemplateDropdown } from './cardFactoryPreviews'
+import { FieldSuggestChips } from './FieldSuggestChips'
+import { AiCardTab } from './cardFactoryAiTab'
+import { ManageCardsTab } from './cardFactoryManageTab'
 import {
-  validateT1Result,
-  validateT2Result,
-  type AiCardT1Result,
-  type AiCardT2Result,
-  type AiMode } from './cardFactoryAiTypes'
+  validateT1AssistResult,
+  validateT2AssistResult,
+  type T1AssistResult,
+  type T2AssistResult } from './cardFactoryAssistTypes'
 
 interface CardFactoryModalProps {
   isOpen: boolean
@@ -40,6 +39,13 @@ type Tab = 'declarative' | 'code' | 'ai' | 'manage'
 
 const SAVE_MESSAGE_TIMEOUT_MS = 3000 // Duration to display save/error messages before auto-clearing
 const COPY_FEEDBACK_TIMEOUT_MS = 2000 // Duration to show "copied" feedback before resetting
+
+// #9061 — Initial sample JSON shown in the Tier 1 "Data (JSON array)" field.
+// Exported as a constant so the field's first-focus auto-select can compare
+// against the EXACT default string and skip auto-select once the user has
+// edited the value (typed/pasted their own content).
+const T1_SAMPLE_DATA_JSON =
+  '[\n  { "name": "item-1", "status": "healthy" },\n  { "name": "item-2", "status": "error" }\n]'
 
 const EXAMPLE_TSX = `// Example: Simple counter card
 export default function MyCard({ config }) {
@@ -545,103 +551,6 @@ const T2_TEMPLATES: T2Template[] = [
 ]
 
 // ============================================================================
-// Field Auto-Suggest Chips
-// ============================================================================
-
-function FieldSuggestChips({
-  dataJson,
-  existingFields,
-  onAddColumn }: {
-  dataJson: string
-  existingFields: Set<string>
-  onAddColumn: (col: DynamicCardColumn) => void
-}) {
-  const { isFeatureEnabled } = useAIMode()
-  const enabled = isFeatureEnabled('naturalLanguage')
-
-  const suggestedFields = useMemo(() => {
-    if (!enabled) return []
-    try {
-      const parsed = JSON.parse(dataJson)
-      if (!Array.isArray(parsed) || parsed.length === 0) return []
-      const allKeys = new Set<string>()
-      for (const row of parsed.slice(0, 10)) {
-        if (typeof row === 'object' && row) {
-          Object.keys(row).forEach(k => allKeys.add(k))
-        }
-      }
-      return [...allKeys].filter(k => !existingFields.has(k))
-    } catch {
-      return []
-    }
-  }, [dataJson, existingFields, enabled])
-
-  if (!enabled || suggestedFields.length === 0) return null
-
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-xs text-muted-foreground/50">Fields:</span>
-      {suggestedFields.map(field => {
-        const sampleValues = (() => {
-          try {
-            const parsed = JSON.parse(dataJson)
-            return parsed.slice(0, 5).map((row: Record<string, unknown>) => row[field])
-          } catch { return [] }
-        })()
-        const detected = detectFieldFormat(field, sampleValues)
-
-        return (
-          <button
-            key={field}
-            onClick={() => onAddColumn({
-              field,
-              label: field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1'),
-              format: detected.format,
-              badgeColors: detected.badgeColors,
-            })}
-            className="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400/70 hover:bg-purple-500/20 hover:text-purple-400 transition-colors"
-          >
-            + {field}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// ============================================================================
-// Inline AI Assist Result Types
-// ============================================================================
-
-interface T1AssistResult {
-  title?: string
-  description?: string
-  layout?: 'list' | 'stats' | 'stats-and-list'
-  width?: number
-  columns?: DynamicCardColumn[]
-  data?: Record<string, unknown>[]
-}
-
-interface T2AssistResult {
-  title?: string
-  description?: string
-  width?: number
-  sourceCode?: string
-}
-
-function validateT1AssistResult(data: unknown): { valid: true; result: T1AssistResult } | { valid: false; error: string } {
-  const obj = data as Record<string, unknown>
-  if (!obj.columns && !obj.data && !obj.title) return { valid: false, error: 'Response must include title, columns, or data' }
-  return { valid: true, result: obj as T1AssistResult }
-}
-
-function validateT2AssistResult(data: unknown): { valid: true; result: T2AssistResult } | { valid: false; error: string } {
-  const obj = data as Record<string, unknown>
-  if (!obj.sourceCode && !obj.title) return { valid: false, error: 'Response must include sourceCode or title' }
-  return { valid: true, result: obj as T2AssistResult }
-}
-
-// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -657,7 +566,12 @@ export function CardFactoryModal({ isOpen, onClose, onCardCreated, embedded = fa
     { field: 'name', label: 'Name' },
     { field: 'status', label: 'Status', format: 'badge', badgeColors: { healthy: 'bg-green-500/20 text-green-400', error: 'bg-red-500/20 text-red-400' } },
   ])
-  const [t1DataJson, setT1DataJson] = useState('[\n  { "name": "item-1", "status": "healthy" },\n  { "name": "item-2", "status": "error" }\n]')
+  const [t1DataJson, setT1DataJson] = useState(T1_SAMPLE_DATA_JSON)
+  // #9061 — Track whether the user has already focused the JSON textarea
+  // at least once. On the FIRST focus we auto-select the pre-filled sample
+  // so that typing replaces it cleanly instead of appending to the sample
+  // (which produced invalid concatenated JSON like `[sample][new]`).
+  const t1DataJsonFirstFocusRef = useRef(true)
   const [t1Width, setT1Width] = useState(6)
 
   // Code (Tier 2) state
@@ -1058,8 +972,26 @@ export function CardFactoryModal({ isOpen, onClose, onCardCreated, embedded = fa
                   <label className="text-xs text-muted-foreground block mb-1">{t('dashboard.cardFactory.dataLabel')}</label>
                   <textarea
                     value={t1DataJson}
-                    onChange={e => setT1DataJson(e.target.value)}
+                    onChange={e => {
+                      // After the first user edit, stop treating the field as "pristine
+                      // sample" so a re-focus after editing never re-selects their work.
+                      t1DataJsonFirstFocusRef.current = false
+                      setT1DataJson(e.target.value)
+                    }}
+                    onFocus={e => {
+                      // #9061 — On first focus, if the field still contains the
+                      // pristine sample JSON, select it all so typing replaces
+                      // the sample instead of appending to it.
+                      if (
+                        t1DataJsonFirstFocusRef.current &&
+                        t1DataJson === T1_SAMPLE_DATA_JSON
+                      ) {
+                        t1DataJsonFirstFocusRef.current = false
+                        e.currentTarget.select()
+                      }
+                    }}
                     rows={6}
+                    placeholder={T1_SAMPLE_DATA_JSON}
                     className="w-full text-xs px-3 py-2 rounded-lg bg-secondary text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-inset focus:ring-purple-500/50"
                   />
                 </div>
@@ -1242,46 +1174,10 @@ export function CardFactoryModal({ isOpen, onClose, onCardCreated, embedded = fa
 
           {/* Manage */}
           {tab === 'manage' && (
-            <div className="space-y-3">
-              {existingCards.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <Wand2 className="w-8 h-8 text-muted-foreground/40 mb-2" />
-                  <p className="text-sm text-muted-foreground">{t('dashboard.cardFactory.noCustomCards')}</p>
-                  <p className="text-xs text-muted-foreground/70 mt-1">
-                    {t('dashboard.cardFactory.useDeclarativeOrCode')}
-                  </p>
-                </div>
-              ) : (
-                existingCards.map(card => (
-                  <div key={card.id} className="rounded-lg bg-card/50 border border-border p-3 flex items-start gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground">{wrapAbbreviations(card.title)}</span>
-                        <span className={cn(
-                          'text-xs px-1.5 py-0.5 rounded',
-                          card.tier === 'tier1' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400',
-                        )}>
-                          {card.tier === 'tier1' ? t('dashboard.cardFactory.declarativeBadge') : t('dashboard.cardFactory.customCodeBadge')}
-                        </span>
-                      </div>
-                      {card.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{wrapAbbreviations(card.description)}</p>
-                      )}
-                      <p className="text-xs text-muted-foreground/70 mt-1">
-                        ID: {card.id} · Created: {new Date(card.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setDeleteConfirmId(card.id)}
-                      className="p-1.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors shrink-0"
-                      title={t('dashboard.cardFactory.deleteCard')}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
+            <ManageCardsTab
+              existingCards={existingCards}
+              onDeleteRequest={setDeleteConfirmId}
+            />
           )}
         </div>
       </div>
@@ -1326,123 +1222,5 @@ export function CardFactoryModal({ isOpen, onClose, onCardCreated, embedded = fa
       </BaseModal.Content>
       {confirmDialog}
     </BaseModal>
-  )
-}
-
-// ============================================================================
-// AI Create Tab
-// ============================================================================
-
-function AiCardTab({ onCardCreated }: { onCardCreated: (id: string) => void }) {
-  const [aiMode, setAiMode] = useState<AiMode>('tier1')
-
-  const handleSaveT1 = (result: AiCardT1Result) => {
-    const id = `dynamic_${Date.now()}`
-    const now = new Date().toISOString()
-
-    const cardDef: DynamicCardDefinition_T1 = {
-      dataSource: 'static',
-      staticData: result.staticData || [],
-      columns: result.columns,
-      layout: result.layout || 'list',
-      searchFields: result.searchFields || result.columns.map(c => c.field),
-      defaultLimit: result.defaultLimit || 5 }
-
-    const def: DynamicCardDefinition = {
-      id,
-      title: result.title,
-      tier: 'tier1',
-      description: result.description || undefined,
-      defaultWidth: result.defaultWidth || 6,
-      createdAt: now,
-      updatedAt: now,
-      cardDefinition: cardDef }
-
-    saveDynamicCard(def)
-    registerDynamicCardType(id, result.defaultWidth || 6)
-    onCardCreated(id)
-  }
-
-  const handleSaveT2 = async (result: AiCardT2Result) => {
-    const compileResult = await compileCardCode(result.sourceCode)
-    if (compileResult.error) {
-      throw new Error(`Compile error: ${compileResult.error}`)
-    }
-
-    const id = `dynamic_${Date.now()}`
-    const now = new Date().toISOString()
-
-    const def: DynamicCardDefinition = {
-      id,
-      title: result.title,
-      tier: 'tier2',
-      description: result.description || undefined,
-      defaultWidth: result.defaultWidth || 6,
-      createdAt: now,
-      updatedAt: now,
-      sourceCode: result.sourceCode,
-      compiledCode: compileResult.code! }
-
-    saveDynamicCard(def)
-    registerDynamicCardType(id, result.defaultWidth || 6)
-    onCardCreated(id)
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Mode toggle */}
-      <div>
-        <label className="text-xs text-muted-foreground block mb-1">Card Type</label>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setAiMode('tier1')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors',
-              aiMode === 'tier1'
-                ? 'bg-blue-500/20 text-blue-400'
-                : 'bg-secondary text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Layers className="w-3 h-3" />
-            Declarative (table/list)
-          </button>
-          <button
-            onClick={() => setAiMode('tier2')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors',
-              aiMode === 'tier2'
-                ? 'bg-purple-500/20 text-purple-400'
-                : 'bg-secondary text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Code className="w-3 h-3" />
-            Custom Code (React)
-          </button>
-        </div>
-      </div>
-
-      {/* AI Generation Panel */}
-      {aiMode === 'tier1' ? (
-        <AiGenerationPanel<AiCardT1Result>
-          systemPrompt={CARD_T1_SYSTEM_PROMPT}
-          placeholder="Describe the card you want, e.g., 'A card showing deployment status across clusters with name, namespace, replicas, and status columns'"
-          missionTitle="AI Card Generation (Declarative)"
-          validateResult={validateT1Result}
-          renderPreview={(result) => <T1Preview result={result} />}
-          onSave={handleSaveT1}
-          saveLabel="Create Declarative Card"
-        />
-      ) : (
-        <AiGenerationPanel<AiCardT2Result>
-          systemPrompt={CARD_T2_SYSTEM_PROMPT}
-          placeholder="Describe the card you want, e.g., 'A card with animated donut chart showing cluster health percentages with color-coded segments'"
-          missionTitle="AI Card Generation (Custom Code)"
-          validateResult={validateT2Result}
-          renderPreview={(result) => <T2Preview result={result} />}
-          onSave={handleSaveT2}
-          saveLabel="Create Custom Code Card"
-        />
-      )}
-    </div>
   )
 }

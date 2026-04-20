@@ -217,10 +217,23 @@ export const GITHUB_REWARD_LABELS: Record<GitHubRewardType, string> = {
 
 // ── Contributor Ladder ──────────────────────────────────────────────
 
-import { CONTRIBUTOR_LEVELS as GENERATED_LEVELS, type ContributorLevel as GeneratedContributorLevel } from './rewards.generated'
+export interface ContributorLevel {
+  rank: number
+  name: string
+  icon: string
+  minCoins: number
+  color: string
+  bgClass: string
+  textClass: string
+  borderClass: string
+}
 
-export type ContributorLevel = GeneratedContributorLevel
-export const CONTRIBUTOR_LEVELS = GENERATED_LEVELS
+// Canonical tier data lives in pkg/rewards/tiers.go (Phase 1 of RFC #8862).
+// scripts/gen-rewards-types.mjs emits rewards.generated.ts from that Go
+// source, and the CI drift check ensures the two stay in sync.
+import { CONTRIBUTOR_LEVELS_GENERATED } from './rewards.generated'
+
+export const CONTRIBUTOR_LEVELS: ContributorLevel[] = CONTRIBUTOR_LEVELS_GENERATED
 
 /** Returns the current level and the next level (null if max) */
 export function getContributorLevel(totalCoins: number): {

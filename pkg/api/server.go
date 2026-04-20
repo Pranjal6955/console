@@ -344,7 +344,7 @@ func NewServer(cfg Config) (*Server, error) {
 
 	// Start GPU utilization background worker (collects hourly snapshots)
 	if k8sClient != nil {
-		server.gpuUtilWorker = NewGPUUtilizationWorker(db, k8sClient)
+		server.gpuUtilWorker = NewGPUUtilizationWorker(db, k8sClient, notificationService)
 		server.gpuUtilWorker.Start()
 	} else {
 		slog.Info("[Server] GPU utilization worker skipped — no Kubernetes client available")
@@ -415,7 +415,11 @@ func (s *Server) setupMiddleware() {
 	// Security headers (#7037 CSP, #7038 HSTS)
 	s.app.Use(func(c *fiber.Ctx) error {
 		c.Set("X-Content-Type-Options", "nosniff")
-		c.Set("X-Frame-Options", "DENY")
+		// Skip X-Frame-Options: DENY for /embed/* routes to allow iframe embedding
+		// These routes display public CI/CD data and are designed for embedding
+		if !strings.HasPrefix(c.Path(), "/embed/") {
+			c.Set("X-Frame-Options", "DENY")
+		}
 		c.Set("X-XSS-Protection", "0") // Disabled per OWASP — modern browsers don't need it and it can introduce vulnerabilities
 		c.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
@@ -848,6 +852,7 @@ func (s *Server) setupRoutes() {
 	githubPipelines := handlers.NewGitHubPipelinesHandler(s.config.GitHubToken)
 	api.Get("/github-pipelines", githubPipelines.Serve)
 	api.Post("/github-pipelines", githubPipelines.Serve)
+	api.Get("/github-pipelines/health", githubPipelines.HandleHealth)
 
 	api.Get("/github/*", githubProxy.Proxy)
 
@@ -1166,9 +1171,11 @@ func (s *Server) setupRoutes() {
 	})
 	api.Get("/rewards/github", rewardsHandler.GetGitHubRewards)
 
-	// Badge routes (dynamic rewards badges for GitHub READMEs) — public and unauthenticated (#8862)
-	s.app.Get("/api/badge/:github_login", publicLimiter, rewardsHandler.GetContributorBadge)
-	s.app.Get("/api/rewards/badge/:github_login", publicLimiter, rewardsHandler.GetContributorBadge)
+	// Public contributor-tier badge (RFC #8862 Phase 2). Premium glassmorphic SVG response.
+	// Mounted on s.app because the `api` group is gated by JWTAuth.
+	badgeHandler := handlers.NewBadgeHandler(rewardsHandler)
+	s.app.Get("/api/badge/:github_login", publicLimiter, badgeHandler.GetBadge)
+	s.app.Get("/api/rewards/badge/:github_login", publicLimiter, badgeHandler.GetBadge)
 
 	// Persistent per-user reward balances (issue #6011). Every authenticated
 	// user can read and mutate their own row — no RBAC gate needed because
@@ -1280,7 +1287,8 @@ func (s *Server) setupRoutes() {
 	s.app.Post("/webhooks/github", feedback.HandleGitHubWebhook)
 
 	// WebSocket for real-time updates
-	s.app.Use("/ws", middleware.WebSocketUpgrade())
+	// Rate-limited with publicLimiter to prevent connection flooding DoS
+	s.app.Use("/ws", publicLimiter, middleware.WebSocketUpgrade())
 	s.app.Get("/ws", websocket.New(func(c *websocket.Conn) {
 		s.hub.HandleConnection(c)
 	}))

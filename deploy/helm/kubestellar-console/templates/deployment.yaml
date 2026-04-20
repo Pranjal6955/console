@@ -31,7 +31,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kubestellar-console.serviceAccountName" . }}
-      automountServiceAccountToken: true
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- if and .Values.backup.enabled .Values.backup.autoRestore }}
@@ -45,6 +45,8 @@ spec:
           # on clusters enforcing PodSecurity restricted.
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.backup.resources | nindent 12 }}
           command:
             - /bin/sh
             - -c

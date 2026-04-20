@@ -3,8 +3,12 @@ package handlers
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/kubestellar/console/pkg/rewards"
@@ -34,80 +38,133 @@ var innerIconSVG = map[string]string{
 	"Sparkles":  `<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" /><path d="M20 2v4" /><path d="M22 4h-4" /><circle cx="4" cy="20" r="2" />`,
 }
 
-// GetContributorBadge returns a dynamic SVG badge for a user based on their GitHub contribution rank.
-// GET /api/rewards/badge/:github_login
-func (h *RewardsHandler) GetContributorBadge(c *fiber.Ctx) error {
-	githubLogin := c.Params("github_login")
-	if githubLogin == "" {
-		return c.Status(fiber.StatusBadRequest).SendString("GitHub login is required")
-	}
+// Badge rendering + transport constants.
+const (
+	badgeContentType         = "image/svg+xml; charset=utf-8"
+	badgeCacheControlSuccess = "public, max-age=3600"
+	badgeCacheControlError   = "no-store"
+	badgeLoginHashPrefixLen  = 12
+	badgeUnknownTierName     = "Unknown"
+	badgeErrorTierName       = "Error"
+)
 
-	points := 0
+// badgeRewardsFetcher is the narrow seam BadgeHandler depends on.
+type badgeRewardsFetcher interface {
+	fetchUserRewardsForBadge(login string) (resp *GitHubRewardsResponse, cacheHit bool, err error)
+}
+
+// errBadgeUnknownLogin signals an empty/404 upstream.
+var errBadgeUnknownLogin = errors.New("unknown github login")
+
+// fetchUserRewardsForBadge adapts RewardsHandler to badgeRewardsFetcher.
+func (h *RewardsHandler) fetchUserRewardsForBadge(login string) (*GitHubRewardsResponse, bool, error) {
 	h.mu.RLock()
-	// Use existing cache if present; otherwise default to Observer (0 points)
-	if entry, ok := h.cache[githubLogin]; ok {
-		points = entry.response.TotalPoints
+	if entry, ok := h.cache[login]; ok && time.Since(entry.fetchedAt) < rewardsCacheTTL {
+		h.mu.RUnlock()
+		resp := *entry.response
+		return &resp, true, nil
 	}
 	h.mu.RUnlock()
 
-	summary := rewards.GetContributorLevel(points)
-	level := summary.Current
+	token := h.resolveToken()
+	resp, err := h.fetchUserRewards(login, token)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "404") || strings.Contains(msg, "422") {
+			return nil, false, errBadgeUnknownLogin
+		}
+		return nil, false, err
+	}
 
-	svg := generateBadgeSVG(level, points)
+	h.mu.Lock()
+	h.cache[login] = &rewardsCacheEntry{
+		response:  resp,
+		fetchedAt: time.Now(),
+	}
+	h.mu.Unlock()
 
-	// Emit adoption metric (async)
-	h.emitBadgeEvent(githubLogin, level.Name)
+	return resp, false, nil
+}
+
+// BadgeHandler serves the public contributor-tier badge SVG.
+type BadgeHandler struct {
+	fetcher badgeRewardsFetcher
+}
+
+// NewBadgeHandler wraps a fetcher (usually *RewardsHandler) and exposes
+// GetBadge.
+func NewBadgeHandler(fetcher badgeRewardsFetcher) *BadgeHandler {
+	return &BadgeHandler{fetcher: fetcher}
+}
+
+// GetBadge renders an SVG tier badge for :github_login (public, rate-limited).
+func (h *BadgeHandler) GetBadge(c *fiber.Ctx) error {
+	login := strings.TrimSpace(c.Params("github_login"))
+	if login == "" {
+		return h.renderErrorSVG(c, fiber.StatusBadGateway, "Login Required", "#e05d44")
+	}
+
+	resp, cacheHit, err := h.fetcher.fetchUserRewardsForBadge(login)
+	if errors.Is(err, errBadgeUnknownLogin) {
+		emitBadgeFetchedEvent(login, badgeUnknownTierName, cacheHit)
+		return h.renderBadge(c, rewards.Tier{Name: badgeUnknownTierName, Color: "gray"}, 0)
+	} else if err != nil {
+		slog.Error("[rewards/badge] upstream fetch failed", "login", login, "error", err)
+		emitBadgeFetchedEvent(login, badgeErrorTierName, cacheHit)
+		return h.renderErrorSVG(c, fiber.StatusBadGateway, "Upstream Error", "#e05d44")
+	}
+
+	points := resp.TotalPoints
+	tier := rewards.GetTier(points)
+
+	emitBadgeFetchedEvent(login, tier.Name, cacheHit)
 
 	c.Set("Content-Type", "image/svg+xml")
-	// Cache for 1 hour — matches Camo proxy expectations
-	c.Set("Cache-Control", "public, max-age=3600")
-	c.Set("ETag", fmt.Sprintf(`"tier-%s-%s"`, level.Name, githubLogin))
+	c.Set("Cache-Control", badgeCacheControlSuccess)
+	// Use the logic from HEAD for ETag and response
+	c.Set("ETag", fmt.Sprintf(`"tier-%s-%s"`, tier.Name, login))
 
+	svg := generateBadgeSVG(tier, points)
 	return c.SendString(svg)
 }
 
-func (h *RewardsHandler) emitBadgeEvent(githubLogin, tier string) {
-	hash := sha256.Sum256([]byte(githubLogin))
-	loginHash := hex.EncodeToString(hash[:])[:12]
-
-	realMeasurementID := ga4RealMeasurementID()
-	if realMeasurementID == "" {
-		return
-	}
-
-	payload := url.Values{}
-	payload.Set("v", "2")
-	payload.Set("tid", realMeasurementID)
-	payload.Set("en", "badge_fetched")
-	payload.Set("ep.tier", tier)
-	payload.Set("ep.login_hash", loginHash)
-
-	go func() {
-		target := "https://www.google-analytics.com/g/collect"
-		_, _ = analyticsClient.PostForm(target, payload)
-	}()
+func (h *BadgeHandler) renderBadge(c *fiber.Ctx, tier rewards.Tier, points int) error {
+	c.Set("Content-Type", "image/svg+xml")
+	c.Set("Cache-Control", badgeCacheControlSuccess)
+	return c.SendString(generateBadgeSVG(tier, points))
 }
 
-func generateBadgeSVG(level rewards.ContributorLevel, points int) string {
+func (h *BadgeHandler) renderErrorSVG(c *fiber.Ctx, status int, msg string, color string) error {
+	c.Set("Content-Type", "image/svg+xml")
+	c.Set("Cache-Control", badgeCacheControlError)
+	// Fallback minimal error badge using premium styles
+	svg := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<svg width="240" height="40" viewBox="0 0 240 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+	<rect width="240" height="40" rx="8" fill="#03030b" />
+	<text x="24" y="24" font-family="Inter, sans-serif" font-size="10" font-weight="700" fill="#6366f1">KubeStellar</text>
+	<text x="112" y="24" font-family="Inter, sans-serif" font-size="14" font-weight="600" fill="%s">%s</text>
+</svg>`, color, msg)
+	return c.Status(status).SendString(svg)
+}
+
+func generateBadgeSVG(tier rewards.Tier, points int) string {
 	width := 240
 	height := 40
 	borderRadius := 8
 
-	hexColor := colorToHex[level.Color]
+	hexColor := colorToHex[tier.Color]
 	if hexColor == "" {
 		hexColor = "#94a3b8"
 	}
 
-	iconContent := innerIconSVG[level.Icon]
+	iconContent := innerIconSVG[tier.Icon]
 	if iconContent == "" {
-		// Fallback to Star if icon missing
 		iconContent = innerIconSVG["Star"]
 	}
 
-	// Legend tier uses a special gradient background
 	bgFill := "rgba(10, 10, 26, 0.95)"
 	borderOpacity := "0.2"
-	if level.Name == "Legend" {
+	if tier.Name == "Legend" {
 		bgFill = "url(#legendGradient)"
 		borderOpacity = "0.4"
 	}
@@ -153,5 +210,33 @@ func generateBadgeSVG(level rewards.ContributorLevel, points int) string {
 		hexColor,
 		width, height, borderRadius,
 		width-1, height-1, borderRadius-1, bgFill, hexColor, borderOpacity,
-		hexColor, iconContent, level.Name, points)
+		hexColor, iconContent, tier.Name, points)
+}
+
+func emitBadgeFetchedEvent(githubLogin, tierName string, cacheHit bool) {
+	hash := sha256.Sum256([]byte(githubLogin))
+	loginHash := hex.EncodeToString(hash[:])[:12]
+
+	realMeasurementID := ga4RealMeasurementID()
+	if realMeasurementID != "" {
+		payload := url.Values{}
+		payload.Set("v", "2")
+		payload.Set("tid", realMeasurementID)
+		payload.Set("en", "badge_fetched")
+		payload.Set("ep.tier", tierName)
+		payload.Set("ep.login_hash", loginHash)
+		payload.Set("ep.cache_hit", fmt.Sprintf("%v", cacheHit))
+
+		go func() {
+			target := "https://www.google-analytics.com/g/collect"
+			_, _ = analyticsClient.PostForm(target, payload)
+		}()
+	}
+
+	slog.Debug(
+		"[rewards/badge] badge_fetched",
+		"tier", tierName,
+		"login_hashed", loginHash,
+		"cache_hit", cacheHit,
+	)
 }

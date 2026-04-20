@@ -41,6 +41,12 @@ const maxConcurrentClusterRBACQueries = 5
 // finishes comfortably within budget.
 const perClusterRBACTimeout = 15 * time.Second
 
+// RBACDefaultTimeout is the per-cluster timeout for standard RBAC queries.
+// Used by both pkg/api/handlers/rbac.go and pkg/agent/server_rbac.go for
+// single-cluster permission checks and RBAC data fetches. Centralized here
+// to prevent drift between API and agent timeout values.
+const RBACDefaultTimeout = 15 * time.Second
+
 // ListServiceAccounts returns all service accounts in a cluster
 func (m *MultiClusterClient) ListServiceAccounts(ctx context.Context, contextName, namespace string) ([]models.K8sServiceAccount, error) {
 	client, err := m.GetClient(contextName)

@@ -545,7 +545,9 @@ export function HardwareHealthCard() {
                     ? 'bg-yellow-500/20 text-yellow-400'
                     : 'bg-muted/30 text-muted-foreground hover:text-foreground'
                 )}
-                title={showSnoozed ? 'Hide snoozed alerts' : 'Show snoozed alerts'}
+                title={showSnoozed ? t('cards:hardwareHealth.hideSnoozedAlerts') : t('cards:hardwareHealth.showSnoozedAlerts')}
+                aria-label={showSnoozed ? t('cards:hardwareHealth.hideSnoozedAlerts') : t('cards:hardwareHealth.showSnoozedAlerts')}
+                aria-pressed={showSnoozed}
               >
                 <BellOff className="w-3.5 h-3.5" />
                 <span className="font-medium">{snoozedAlertCount}</span>
@@ -558,7 +560,10 @@ export function HardwareHealthCard() {
                 <button
                   onClick={() => setSnoozeAllMenuOpen(!snoozeAllMenuOpen)}
                   className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
-                  title="Snooze all visible alerts"
+                  title={t('cards:hardwareHealth.snoozeAllVisible')}
+                  aria-label={t('cards:hardwareHealth.snoozeAllVisible')}
+                  aria-haspopup="menu"
+                  aria-expanded={snoozeAllMenuOpen}
                 >
                   <MoreVertical className="w-4 h-4" />
                 </button>
@@ -669,10 +674,21 @@ export function HardwareHealthCard() {
               >
                 <div className="flex items-start justify-between gap-1">
                   <div
-                    className="min-w-0 flex items-start gap-2 flex-1 cursor-pointer"
+                    className="min-w-0 flex items-start gap-2 flex-1 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => drillToNode(alert.cluster, alert.nodeName, {
                       issue: `${getDeviceLabel(alert.deviceType)} disappeared: ${alert.previousCount} → ${alert.currentCount}`
                     })}
+                    onKeyDown={(e) => {
+                      // Issue #8837: keyboard activation for alert drill-down
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        drillToNode(alert.cluster, alert.nodeName, {
+                          issue: `${getDeviceLabel(alert.deviceType)} disappeared: ${alert.previousCount} → ${alert.currentCount}`
+                        })
+                      }
+                    }}
                   >
                     <DeviceIcon
                       deviceType={alert.deviceType}
@@ -789,8 +805,17 @@ export function HardwareHealthCard() {
             {paginatedInventory.map((node) => (
               <div
                 key={`${node.cluster}/${node.nodeName}`}
-                className="p-2 rounded text-xs transition-colors group bg-muted/20 hover:bg-muted/40 cursor-pointer"
+                className="p-2 rounded text-xs transition-colors group bg-muted/20 hover:bg-muted/40 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                role="button"
+                tabIndex={0}
                 onClick={() => drillToNode(node.cluster, node.nodeName)}
+                onKeyDown={(e) => {
+                  // Issue #8837: keyboard activation for inventory node drill-down
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    drillToNode(node.cluster, node.nodeName)
+                  }
+                }}
               >
                 <div className="flex items-start justify-between gap-1">
                   <div className="min-w-0 flex items-start gap-2 flex-1">

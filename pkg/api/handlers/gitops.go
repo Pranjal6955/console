@@ -263,6 +263,13 @@ func (h *GitOpsHandlers) ListDrifts(c *fiber.Ctx) error {
 func (h *GitOpsHandlers) ListHelmReleases(c *fiber.Ctx) error {
 	cluster := c.Query("cluster")
 
+	// SECURITY: Validate cluster name before passing to helm CLI
+	if cluster != "" {
+		if err := validateK8sName(cluster, "cluster"); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
 	// If specific cluster requested, query only that cluster
 	if cluster != "" {
 		return h.listHelmReleasesForCluster(c, cluster)
@@ -352,6 +359,13 @@ func (h *GitOpsHandlers) getHelmReleasesForCluster(ctx context.Context, cluster 
 // ListKustomizations returns Flux Kustomization resources
 func (h *GitOpsHandlers) ListKustomizations(c *fiber.Ctx) error {
 	cluster := c.Query("cluster")
+
+	// SECURITY: Validate cluster name before passing to kubectl CLI
+	if cluster != "" {
+		if err := validateK8sName(cluster, "cluster"); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
 
 	// If specific cluster requested, query only that cluster
 	if cluster != "" {
@@ -538,6 +552,13 @@ var (
 // ListOperators returns OLM-managed operators (ClusterServiceVersions)
 func (h *GitOpsHandlers) ListOperators(c *fiber.Ctx) error {
 	cluster := c.Query("cluster")
+
+	// SECURITY: Validate cluster name before passing to kubectl CLI
+	if cluster != "" {
+		if err := validateK8sName(cluster, "cluster"); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
 
 	// If specific cluster requested, query only that cluster
 	if cluster != "" {
@@ -944,6 +965,13 @@ func (h *GitOpsHandlers) fetchOperatorsFromCluster(ctx context.Context, cluster 
 // ListOperatorSubscriptions returns OLM subscriptions across clusters
 func (h *GitOpsHandlers) ListOperatorSubscriptions(c *fiber.Ctx) error {
 	cluster := c.Query("cluster")
+
+	// SECURITY: Validate cluster name before passing to kubectl CLI
+	if cluster != "" {
+		if err := validateK8sName(cluster, "cluster"); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
 
 	if cluster != "" {
 		ctx, cancel := context.WithTimeout(c.Context(), subscriptionPerClusterTimeout)
@@ -1388,6 +1416,11 @@ func (h *GitOpsHandlers) detectDriftViaKubectl(ctx context.Context, req DetectDr
 		}
 	}
 
+	// Validate path parameter to prevent path traversal attacks
+	if err := validatePath(req.Path); err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
 	// Clone the repo to a temp directory
 	tempDir, err := cloneRepo(ctx, req.RepoURL, req.Branch)
 	if err != nil {
@@ -1519,6 +1552,11 @@ func (h *GitOpsHandlers) syncViaKubectl(ctx context.Context, req SyncRequest) (*
 		if err := validateK8sName(val, field); err != nil {
 			return nil, fmt.Errorf("invalid %s: %w", field, err)
 		}
+	}
+
+	// Validate path parameter to prevent path traversal attacks
+	if err := validatePath(req.Path); err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 
 	// Clone the repo
@@ -1715,6 +1753,35 @@ func validateBranchName(branch string) error {
 		return fmt.Errorf("branch name cannot contain '..'")
 	}
 
+	return nil
+}
+
+// validatePath validates a repository path parameter.
+// SECURITY: Prevents path traversal attacks and flag injection.
+func validatePath(path string) error {
+	if path == "" {
+		return nil // Empty path is OK - refers to repo root
+	}
+	// Block null bytes
+	if strings.ContainsRune(path, 0) {
+		return fmt.Errorf("path contains null bytes")
+	}
+	// Only allow alphanumeric, -, _, /, . (common in git repo paths)
+	for _, char := range path {
+		if !((char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '-' || char == '_' || char == '/' || char == '.') {
+			return fmt.Errorf("invalid character in path: %c", char)
+		}
+	}
+	// Block dangerous patterns
+	if strings.HasPrefix(path, "-") {
+		return fmt.Errorf("path cannot start with '-'")
+	}
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path traversal (..) is not allowed")
+	}
 	return nil
 }
 

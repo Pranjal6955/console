@@ -1,3 +1,6 @@
+// Modal safety: the ApiKeyPromptModal used here is the shared BaseModal-based
+// prompt that already guards its own close behavior; no form state on this
+// card can be lost to a backdrop click. Treat as closeOnBackdropClick={false}.
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { AlertCircle, CheckCircle, Clock, ChevronRight, TrendingUp, TrendingDown, Minus, Cpu, HardDrive, RefreshCw, Info, Sparkles, ThumbsUp, ThumbsDown, Zap, Layers, List } from 'lucide-react'
 import { useCardDemoState } from '../CardDataContext'
@@ -219,7 +222,7 @@ function generatePredictionId(type: string, name: string, cluster?: string): str
   return `heuristic-${type}-${name}-${cluster || 'unknown'}`
 }
 
-// Card 4: Predictive Health Monitor - Detect issues, predict failures, group by root cause
+// Card 4: AI Cluster Issue Predictor - Detect issues, predict failures, group by root cause
 export function ConsoleOfflineDetectionCard(_props: ConsoleMissionCardProps) {
   const { t } = useTranslation(['cards', 'common'])
   const { startMission, missions } = useMissions()

@@ -42,7 +42,10 @@
     "getYourOwn": "Get Your Own Console",
     "viewDetails": "View Details",
     "copied": "Copied!",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "viewNamespaceCostAria": "View cost details for namespace {{namespace}}",
+    "viewOperatorAria": "View operator {{name}}",
+    "toggleGPUNodeAria": "Toggle details for GPU node {{node}}"
   },
   "buttons": {
     "addCard": "Add Card",
@@ -267,7 +270,20 @@
       "warningAt": "Warning at (%)",
       "criticalAt": "Critical at (%)",
       "saved": "Saved!",
-      "saveSettings": "Save Token Settings"
+      "saveSettings": "Save Token Settings",
+      "demoBadge": "Demo Data",
+      "demoBadgeAriaLabel": "Demo mode active",
+      "demoModeLabel": "Demo Mode:",
+      "demoModeMessage": "Showing simulated token usage data. To see live token consumption from your AI operations, ensure the kc-agent is running and connected.",
+      "percentUsed": "{{percent}}% used",
+      "remaining": "{{count}} remaining",
+      "monthlyLimitHint": "Maximum tokens per month",
+      "warningAtHint": "Warning at {{percent}}% usage",
+      "criticalAtHint": "Critical at {{percent}}% usage",
+      "validation": {
+        "warningMustBeLower": "Warning threshold must be lower than critical threshold.",
+        "limitZeroConfirm": "Setting limit to 0 disables all AI operations. Continue?"
+      }
     },
     "github": {
       "title": "GitHub Integration",
@@ -345,7 +361,9 @@
       "refreshing": "Refreshing...",
       "saving": "Saving...",
       "saved": "Saved!",
-      "saveProfile": "Save Profile"
+      "saveProfile": "Save Profile",
+      "saveFailed": "Failed to save profile",
+      "invalidEmail": "Enter a valid email address."
     },
     "notifications": {
       "title": "Alert Notifications",
@@ -370,7 +388,8 @@
         "testNotification": "Test Slack Notification",
         "configureFirst": "Please configure Slack webhook URL first",
         "testSuccess": "Test notification sent successfully!",
-        "testFailed": "Failed to send test notification"
+        "testFailed": "Failed to send test notification",
+        "invalidWebhookUrl": "Enter a valid Slack webhook URL (https://hooks.slack.com/services/...)."
       },
       "email": {
         "title": "Email Integration",
@@ -385,7 +404,8 @@
         "testNotification": "Test Email Notification",
         "configureFirst": "Please configure all required email fields first",
         "testSuccess": "Test email sent successfully!",
-        "testFailed": "Failed to send test email"
+        "testFailed": "Failed to send test email",
+        "invalidSmtpPort": "SMTP port must be a number between 1 and 65535."
       },
       "tip": "Configure notification channels here, then add them to specific alert rules in the Alert Rules editor. Each rule can have multiple notification channels with different configurations.",
       "browser": {
@@ -406,7 +426,31 @@
         "dndHint": "Also check that Do Not Disturb / Focus mode is off — the OS suppresses notifications while it's on.",
         "tryAgain": "Try Again",
         "blocked": "Browser notifications are blocked. Enable them in your browser's site settings for this page, then reload.",
-        "requestPermission": "Request Permission"
+        "requestPermission": "Request Permission",
+        "quietHoursTitle": "Quiet Hours",
+        "quietHoursDesc": "Suppress desktop notifications during a recurring daily window.",
+        "quietHoursDontNotifyBetween": "Don't notify between",
+        "quietHoursAnd": "and"
+      },
+      "pagerduty": {
+        "title": "PagerDuty",
+        "routingKey": "Integration / Routing Key",
+        "routingKeyHint": "Find this under Services > Integrations > Events API v2 in PagerDuty",
+        "routingKeyRequired": "PagerDuty routing key is required",
+        "testing": "Testing...",
+        "testNotification": "Test PagerDuty",
+        "testSuccess": "Test notification sent and resolved successfully",
+        "testFailed": "Failed to send test notification"
+      },
+      "opsgenie": {
+        "title": "OpsGenie",
+        "apiKey": "API Key",
+        "apiKeyHint": "Find this under Settings > API key management in OpsGenie",
+        "apiKeyRequired": "OpsGenie API key is required",
+        "testing": "Testing...",
+        "testNotification": "Test OpsGenie",
+        "testSuccess": "Test alert created and closed successfully",
+        "testFailed": "Failed to send test notification"
       }
     },
     "persistence": {
@@ -495,6 +539,8 @@
       "backendOffline": "Backend offline",
       "never": "Never",
       "justNow": "Just now",
+      "secondsAgo": "{{count}}s ago",
+      "minutesAgo": "{{count}}m ago",
       "lastSaved": "Last saved: {{time}}",
       "encrypted": "AES-256 encrypted",
       "fileLocation": "File location",
@@ -1104,7 +1150,8 @@
       "blocksCount_other": "{{count}} blocks",
       "deleteStatBlock": "Delete stat block",
       "addAtLeastOne": "Add at least one stat block.",
-      "changeIcon": "Change icon"
+      "changeIcon": "Change icon",
+      "moveBlockUp": "Move stat block up"
     },
     "aiAssist": {
       "describeWhatYouWant": "AI Assist — describe what you want",
@@ -1373,7 +1420,71 @@
   },
   "events": {
     "allNamespaces": "All Namespaces",
-    "allReasons": "All Reasons"
+    "allReasons": "All Reasons",
+    "subtitle": "Cluster events and activity across your infrastructure",
+    "dashboardTitle": "Events Dashboard",
+    "dashboardDescription": "Add cards to monitor Kubernetes events, warnings, and activity across your clusters.",
+    "tabs": {
+      "overview": "Overview",
+      "timeline": "Timeline",
+      "allEvents": "All Events"
+    },
+    "stats": {
+      "total": "Total Events",
+      "totalSublabel": "events",
+      "warnings": "Warnings",
+      "warningsSublabel": "warning events",
+      "normal": "Normal",
+      "normalSublabel": "normal events",
+      "lastHour": "Last Hour",
+      "lastHourSublabel": "in last hour",
+      "errorsSublabel": "error events"
+    },
+    "sections": {
+      "eventTypes": "Event Types",
+      "topReasons": "Top Reasons",
+      "byCluster": "By Cluster",
+      "recentWarnings": "Recent Warnings",
+      "eventTimeline": "Event Timeline",
+      "activityLast24h": "Event Activity (Last 24 Hours)"
+    },
+    "groups": {
+      "lastHour": "Last Hour",
+      "today": "Today",
+      "older": "Older",
+      "unknownTime": "Unknown time"
+    },
+    "empty": {
+      "noEvents": "No events",
+      "noEventsToDisplay": "No events to display",
+      "noEventsFound": "No events found",
+      "noClusterData": "No cluster data",
+      "noWarnings": "No warnings",
+      "showingFrom": "Showing events from: {{clusters}}",
+      "clearFilters": "Clear filters"
+    },
+    "search": "Search",
+    "clearFiltersButton": "Clear Filters",
+    "viewAll": "View all",
+    "viewMore_one": "View {{count}} more event...",
+    "viewMore_other": "View {{count}} more events...",
+    "groupCount_one": "({{count}} event)",
+    "groupCount_other": "({{count}} events)",
+    "groupHeading": "{{group}} ({{count}})",
+    "showingFiltered": "Showing {{filtered}} of {{total}} events",
+    "repeatCount": "×{{count}}",
+    "timeAgo": {
+      "unknown": "Unknown",
+      "justNow": "Just now",
+      "minutes": "{{count}}m ago",
+      "hours": "{{count}}h ago",
+      "days": "{{count}}d ago"
+    },
+    "loadError": {
+      "title": "Failed to load events",
+      "fallback": "The backend is unavailable or the request timed out. Check your connection and try again.",
+      "retry": "Retry"
+    }
   },
   "alerts": {
     "title": "Alerts",
@@ -1535,7 +1646,13 @@
   "warningEvents": {
     "noWarnings": "No Warnings",
     "noWarningsHint": "Warning events will appear here when detected",
-    "noMatchingWarnings": "No warnings match the current filters"
+    "noMatchingWarnings": "No warnings match the current filters",
+    "count_one": "{{count}} warning",
+    "count_other": "{{count}} warnings",
+    "errorLoading": "Error loading events",
+    "errorFetchAttempts_one": "Failed to fetch event data ({{count}} attempt)",
+    "errorFetchAttempts_other": "Failed to fetch event data ({{count}} attempts)",
+    "repeatCount": "×{{count}}"
   },
   "drasi": {
     "configureSource": "Configure Source",
@@ -1809,6 +1926,7 @@
     "submitFailed": "Unable to submit — GitHub login may be required.",
     "submitFailedGuidance": "You can open issues directly on GitHub. Coins will be accumulated and available in your console once you install a GitHub OAuth app.",
     "submitInfo": "Your request will be reviewed by a maintainer before being analyzed by our AI. Once approved, the AI will attempt to create a fix automatically and you'll receive a notification when ready.",
+    "submitShortcutHint": "Press Cmd/Ctrl+Enter to submit.",
     "loginBannerDemo": "Login with GitHub to submit feedback and manage requests",
     "loginBannerLocal": "Set up GitHub OAuth to submit feedback, earn coins, and track requests",
     "requestSubmitted": "Request Submitted!",
@@ -2936,6 +3054,7 @@
     "addClusterConnectDesc": "Add a cluster by entering connection details manually.",
     "importPaste": "Paste your kubeconfig YAML below, or upload a file:",
     "importUpload": "Upload file",
+    "importOverwriteConfirm": "This will replace the kubeconfig YAML you've already pasted. Continue?",
     "importPreview": "Preview",
     "importPreviewDesc": "The following contexts were found:",
     "importButton": "Import {{count}} Cluster(s)",
@@ -2971,6 +3090,7 @@
     "connectTestSuccess": "Connected",
     "connectTestFailed": "Connection failed",
     "connectAddButton": "Add Cluster",
+    "connectAddDisabledAfterTestFail": "Connection test failed. Edit connection settings or re-run the test before adding.",
     "connectAdding": "Adding...",
     "connectSuccess": "Cluster added successfully",
     "connectNext": "Next",
@@ -3003,7 +3123,28 @@
     "removeClusterSuccess": "Removed cluster \"{{name}}\" from kubeconfig",
     "removeClusterError": "Failed to remove cluster from kubeconfig",
     "removeClusterNoAgent": "Local agent not connected",
-    "removeClusterAgentTooOld": "Your local kc-agent is out of date and doesn't support removing clusters from the kubeconfig. Please upgrade kc-agent to the latest release and try again."
+    "removeClusterAgentTooOld": "Your local kc-agent is out of date and doesn't support removing clusters from the kubeconfig. Please upgrade kc-agent to the latest release and try again.",
+    "renameNoAgent": "Local agent not connected",
+    "sortPreferencesCorrupted": "Cluster sort preferences were corrupted and have been reset to defaults.",
+    "connectTestSuccessKubernetes": "Connected — Kubernetes {{version}}",
+    "renameContext": {
+      "title": "Rename Context",
+      "currentLabel": "Current:",
+      "newNameLabel": "New name",
+      "updatesKubeconfigHint": "This updates your kubeconfig via the local agent.",
+      "cancel": "Cancel",
+      "rename": "Rename",
+      "renaming": "Renaming...",
+      "renamed": "Renamed",
+      "errorEmpty": "Name cannot be empty",
+      "errorSpaces": "Name cannot contain spaces",
+      "errorUnchanged": "Name is unchanged",
+      "errorFailed": "Failed to rename context"
+    },
+    "diagnoseMissionTitle": "Diagnose {{cluster}}",
+    "diagnoseMissionDescription": "Analyzing cluster health and identifying issues",
+    "repairMissionTitle": "Repair {{cluster}}",
+    "repairMissionDescription": "Automatically fixing cluster issues"
   },
   "remediation": {
     "title": "AI Remediation Console",
@@ -3340,8 +3481,26 @@
     "groups": {
       "deleteTitle": "Delete Cluster Group",
       "deleteMessage": "Are you sure you want to delete this cluster group? This action cannot be undone.",
-      "title": "Cluster Groups ({{count}})"
+      "deleteConfirm": "Delete cluster group \"{{name}}\"? This cannot be undone.",
+      "title": "Cluster Groups ({{count}})",
+      "newGroup": "New Group",
+      "namePlaceholder": "Group name...",
+      "selectClustersLabel": "Select clusters for this group:",
+      "cancel": "Cancel",
+      "create": "Create",
+      "deleteTooltip": "Delete group"
     }
+  },
+  "clusterAdmin": {
+    "title": "Cluster Admin",
+    "subtitle": "Multi-cluster operations, health, and infrastructure management",
+    "emptyTitle": "Cluster Admin Dashboard",
+    "emptyDescription": "Add cards to manage cluster health, node operations, upgrades, and security across your infrastructure.",
+    "errorLoadingData": "Error loading cluster data",
+    "statTotal": "total",
+    "statHealthy": "healthy",
+    "statDegraded": "degraded",
+    "statOffline": "offline"
   },
   "discardUnsavedChanges": "Discard unsaved changes?",
   "discardUnsavedChangesMessage": "You have unsaved changes that will be lost.",

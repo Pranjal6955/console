@@ -21,9 +21,6 @@ import (
 // rbacAnalysisTimeout is the timeout for RBAC analysis queries on large clusters.
 const rbacAnalysisTimeout = 60 * time.Second
 
-// rbacDefaultTimeout is the per-cluster timeout for standard RBAC queries.
-const rbacDefaultTimeout = 15 * time.Second
-
 // parseUUID parses a UUID string
 func parseUUID(s string) (uuid.UUID, error) {
 	return uuid.Parse(s)
@@ -185,7 +182,7 @@ func (h *RBACHandler) GetUserManagementSummary(c *fiber.Ctx) error {
 
 	// Count K8s service accounts (if k8s client is available)
 	if h.k8sClient != nil {
-		ctx, cancel := context.WithTimeout(c.Context(), rbacDefaultTimeout)
+		ctx, cancel := context.WithTimeout(c.Context(), k8s.RBACDefaultTimeout)
 		defer cancel()
 
 		total, clusters, err := h.k8sClient.CountServiceAccountsAllClusters(ctx)
@@ -222,7 +219,7 @@ func (h *RBACHandler) ListK8sServiceAccounts(c *fiber.Ctx) error {
 	cluster := c.Query("cluster")
 	namespace := c.Query("namespace")
 
-	ctx, cancel := context.WithTimeout(c.Context(), rbacDefaultTimeout)
+	ctx, cancel := context.WithTimeout(c.Context(), k8s.RBACDefaultTimeout)
 	defer cancel()
 
 	if cluster != "" {
@@ -311,7 +308,7 @@ func (h *RBACHandler) ListK8sRoles(c *fiber.Ctx) error {
 	namespace := c.Query("namespace")
 	includeSystem := c.Query("includeSystem") == "true"
 
-	ctx, cancel := context.WithTimeout(c.Context(), rbacDefaultTimeout)
+	ctx, cancel := context.WithTimeout(c.Context(), k8s.RBACDefaultTimeout)
 	defer cancel()
 
 	if cluster != "" {
@@ -359,7 +356,7 @@ func (h *RBACHandler) ListK8sRoleBindings(c *fiber.Ctx) error {
 	namespace := c.Query("namespace")
 	includeSystem := c.Query("includeSystem") == "true"
 
-	ctx, cancel := context.WithTimeout(c.Context(), rbacDefaultTimeout)
+	ctx, cancel := context.WithTimeout(c.Context(), k8s.RBACDefaultTimeout)
 	defer cancel()
 
 	if cluster == "" {
@@ -423,7 +420,7 @@ func (h *RBACHandler) ListK8sUsers(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Cluster parameter required")
 	}
 
-	ctx, cancel := context.WithTimeout(c.Context(), rbacDefaultTimeout)
+	ctx, cancel := context.WithTimeout(c.Context(), k8s.RBACDefaultTimeout)
 	defer cancel()
 
 	users, err := h.k8sClient.GetAllK8sUsers(ctx, cluster)

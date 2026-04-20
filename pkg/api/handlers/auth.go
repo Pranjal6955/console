@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/kubestellar/console/pkg/api/audit"
 	"github.com/kubestellar/console/pkg/api/middleware"
 	"github.com/kubestellar/console/pkg/models"
 	"github.com/kubestellar/console/pkg/store"
@@ -388,6 +389,7 @@ func (h *AuthHandler) devModeLogin(c *fiber.Ctx) error {
 	// to prevent leakage via browser history, Referer headers, and server logs (#4278).
 	// The frontend reads the token from the cookie via POST /auth/refresh.
 	h.setJWTCookie(c, jwtToken)
+	audit.Log(c, audit.ActionUserLogin, "user", user.ID.String(), user.GitHubLogin)
 
 	c.Set("Cache-Control", "no-store")
 	redirectURL := fmt.Sprintf("%s/auth/callback?onboarded=%t", h.frontendURL, user.Onboarded)
@@ -634,6 +636,7 @@ func (h *AuthHandler) GitHubCallback(c *fiber.Ctx) error {
 	// to prevent leakage via browser history, Referer headers, and server logs (#4278).
 	// The frontend reads the token from the cookie via POST /auth/refresh.
 	h.setJWTCookie(c, jwtToken)
+	audit.Log(c, audit.ActionUserLogin, "user", user.ID.String(), user.GitHubLogin)
 	slog.Info("[Auth] OAuth callback complete", "user", user.GitHubLogin, "frontendURL", h.frontendURL)
 
 	c.Set("Cache-Control", "no-store")
@@ -726,6 +729,7 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 		CancelUserSSEStreams(claims.UserID)
 	}
 
+	audit.Log(c, audit.ActionUserLogout, "user", claims.UserID.String(), claims.GitHubLogin)
 	slog.Info("[Auth] token revoked, WS sessions closed", "user", claims.GitHubLogin, "jti", claims.ID)
 	return c.JSON(fiber.Map{"success": true, "message": "Token revoked"})
 }

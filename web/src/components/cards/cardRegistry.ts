@@ -248,6 +248,8 @@ const CrioStatus = safeLazy(() => import('./crio_status'), 'CrioStatus')
 const LimaStatus = safeLazy(() => import('./lima_status'), 'LimaStatus')
 // CloudEvents monitoring card
 const CloudEventsStatus = safeLazy(() => import('./cloudevents_status'), 'CloudEventsStatus')
+// Artifact Hub package discovery card
+const ArtifactHubStatus = safeLazy(() => import('./artifact_hub_status'), 'ArtifactHubStatus')
 // Strimzi Kafka operator card
 const StrimziStatus = safeLazy(() => import('./strimzi_status'), 'StrimziStatus')
 // KubeVela application delivery card
@@ -262,14 +264,14 @@ const SLOCompliance = safeLazy(() => import('./slo_compliance'), 'SLOCompliance'
 const FailoverTimeline = safeLazy(() => import('./failover_timeline'), 'FailoverTimeline')
 // Trino query gateway monitoring card
 const TrinoGateway = safeLazy(() => import('./trino_gateway'), 'TrinoGateway')
-// Thanos distributed metrics card
-const ThanosStatus = safeLazy(() => import('./thanos_status'), 'ThanosStatus')
 // OpenFeature feature-flag management card
 const OpenFeatureStatus = safeLazy(() => import('./openfeature_status'), 'OpenFeatureStatus')
 // OpenKruise advanced workloads + sidecar injection card
 const OpenKruiseStatus = safeLazy(() => import('./openkruise_status'), 'OpenKruiseStatus')
 // Keycloak Identity & Access Management card
 const KeycloakStatus = safeLazy(() => import('./keycloak_status'), 'KeycloakStatus')
+// OpenYurt edge computing card
+const OpenYurtStatus = safeLazy(() => import('./openyurt_status'), 'OpenYurtStatus')
 // Inspektor Gadget cards
 const NetworkTraceCard = safeLazy(() => import('./gadget/NetworkTraceCard'), 'NetworkTraceCard')
 const DNSTraceCard = safeLazy(() => import('./gadget/DNSTraceCard'), 'DNSTraceCard')
@@ -577,6 +579,8 @@ const RAW_CARD_COMPONENTS: Record<string, CardComponent> = {
   crio_status: CrioStatus,
   // Lima VM
   lima_status: LimaStatus,
+  // Artifact Hub
+  artifact_hub_status: ArtifactHubStatus,
   // CloudEvents messaging
   cloudevents_status: CloudEventsStatus,
   // Strimzi Kafka operator
@@ -585,6 +589,8 @@ const RAW_CARD_COMPONENTS: Record<string, CardComponent> = {
   kubevela_status: KubeVelaStatus,
   // Karmada multi-cluster orchestration
   karmada_status: KarmadaStatus,
+  // OpenYurt edge computing
+  openyurt_status: OpenYurtStatus,
   // KubeRay fleet monitoring
   kuberay_fleet: KubeRayFleet,
   // SLO compliance tracking
@@ -594,7 +600,6 @@ const RAW_CARD_COMPONENTS: Record<string, CardComponent> = {
   // Trino query gateway monitoring
   trino_gateway: TrinoGateway,
   // Thanos distributed metrics
-  thanos_status: ThanosStatus,
   // OpenFeature feature-flag management
   openfeature_status: OpenFeatureStatus,
   // OpenKruise advanced workloads + sidecar injection
@@ -992,6 +997,8 @@ const CARD_CHUNK_PRELOADERS: Record<string, () => Promise<unknown>> = {
   buildpacks_status: () => import('./buildpacks-status'),
   // KEDA
   keda_status: () => import('./keda_status'),
+  // Artifact Hub
+  artifact_hub_status: () => import('./artifact_hub_status'),
   // CloudEvents
   cloudevents_status: () => import('./cloudevents_status'),
   // CRI-O
@@ -1002,12 +1009,12 @@ const CARD_CHUNK_PRELOADERS: Record<string, () => Promise<unknown>> = {
   kubevela_status: () => import('./kubevela_status'),
   // Karmada multi-cluster orchestration
   karmada_status: () => import('./karmada_status'),
+  // OpenYurt edge computing
+  openyurt_status: () => import('./openyurt_status'),
   kuberay_fleet: () => import('./kuberay_fleet'),
   slo_compliance: () => import('./slo_compliance'),
   failover_timeline: () => import('./failover_timeline'),
   trino_gateway: () => import('./trino_gateway'),
-  // Thanos distributed metrics
-  thanos_status: () => import('./thanos_status'),
   // OpenFeature feature-flag management
   openfeature_status: () => import('./openfeature_status'),
   // OpenKruise advanced workloads + sidecar injection
@@ -1082,7 +1089,7 @@ const CARD_CHUNK_PRELOADERS: Record<string, () => Promise<unknown>> = {
  */
 export function prefetchCardChunks(cardTypes: string[]): void {
   for (const type of cardTypes) {
-    CARD_CHUNK_PRELOADERS[type]?.()?.catch(() => {})
+    CARD_CHUNK_PRELOADERS[type]?.()?.catch(() => { })
   }
 }
 
@@ -1129,7 +1136,7 @@ export function prefetchDemoCardChunks(): void {
     () => import('./crossplane-status/CrossplaneManagedResources'),
     () => import('./VClusterStatus'),
   ]
-  startupChunks.forEach(load => load().catch(() => {}))
+  startupChunks.forEach(load => load().catch(() => { }))
 }
 
 /**
@@ -1189,12 +1196,14 @@ export const LIVE_DATA_CARDS = new Set([
   'control_plane_health',
   'node_conditions',
   'dns_health',
+  'artifact_hub_status',
   'coredns_status',
   'keda_status',
   'crio_status',
   'strimzi_status',
   'keycloak_status',
   'kubevela_status',
+  'openyurt_status',
   // KubeRay, SLO, Failover, Trino - demo until detected
   'kuberay_fleet',
   'slo_compliance',
@@ -1330,6 +1339,7 @@ export const CARD_DEFAULT_WIDTHS: Record<string, number> = {
   node_conditions: 6,
   admission_webhooks: 6,
   dns_health: 4,
+  artifact_hub_status: 6,
   coredns_status: 6,
   keda_status: 6,
   crio_status: 6,
@@ -1342,6 +1352,8 @@ export const CARD_DEFAULT_WIDTHS: Record<string, number> = {
   quota_heatmap: 8,
   // KubeVela application delivery
   kubevela_status: 6,
+  // OpenYurt edge computing
+  openyurt_status: 6,
   // Flatcar Container Linux
   flatcar_status: 6,
   // Fluentd log collector
@@ -1356,8 +1368,6 @@ export const CARD_DEFAULT_WIDTHS: Record<string, number> = {
   slo_compliance: 6,
   failover_timeline: 8,
   trino_gateway: 6,
-  // Thanos distributed metrics
-  thanos_status: 6,
   // OpenFeature feature-flag management
   openfeature_status: 6,
   // OpenKruise advanced workloads + sidecar injection

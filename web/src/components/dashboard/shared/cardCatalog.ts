@@ -309,6 +309,7 @@ export const CARD_CATALOG = {
   'Misc': [
     { type: 'buildpacks_status', title: 'Buildpacks Status', description: 'Cloud Native Buildpacks detection, builders, and image build status', visualization: 'status' },
     { type: 'flatcar_status', title: 'Flatcar Container Linux', description: 'Flatcar node OS versions, update status, and version distribution', visualization: 'status' },
+    { type: 'artifact_hub_status', title: 'Artifact Hub', description: 'Artifact Hub package discovery and repository sync status', visualization: 'status' },
     { type: 'crio_status', title: 'CRI-O', description: 'CRI-O container runtime metrics, image pulls, and pod sandbox status', visualization: 'status' },
     { type: 'github_activity', title: 'GitHub Activity', description: 'Monitor GitHub repository activity - PRs, issues, releases, and contributors', visualization: 'table' },
     { type: 'kubectl', title: 'Kubectl', description: 'Interactive kubectl terminal with AI assistance, YAML editor, and command history', visualization: 'table' },
@@ -324,6 +325,7 @@ export const CARD_CATALOG = {
   ],
   'Orchestration': [
     { type: 'keda_status', title: 'KEDA', description: 'KEDA autoscaler status, scaled object metrics, and trigger queue depths', visualization: 'status' },
+    { type: 'openyurt_status', title: 'OpenYurt', description: 'OpenYurt edge node pools, autonomy status, and edge-cloud connectivity', visualization: 'status' },
     { type: 'kubevela_status', title: 'KubeVela', description: 'KubeVela application delivery, component status, and workflow progress', visualization: 'status' },
     { type: 'karmada_status', title: 'Karmada', description: 'Karmada multi-cluster resource propagation status, member clusters, and policy health', visualization: 'status' },
     { type: 'openkruise_status', title: 'OpenKruise', description: 'OpenKruise advanced workload status (CloneSet, Advanced StatefulSet/DaemonSet) and SidecarSet injection across clusters', visualization: 'status' },
@@ -397,6 +399,7 @@ export const CATEGORY_LOCALE_KEYS: Record<string, string> = {
   'Serverless': 'serverless',
   'Streaming & Messaging': 'streamingMessaging',
   'Maturity': 'maturity',
+  'Observability': 'observability',
 }
 
 // ---------------------------------------------------------------------------

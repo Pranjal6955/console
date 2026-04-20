@@ -25,12 +25,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kubestellar/console/pkg/k8s"
 	"github.com/kubestellar/console/pkg/models"
 )
-
-// rbacRequestTimeout is the per-request deadline for single-cluster
-// permission checks. Matches pkg/api/handlers/rbac.go rbacDefaultTimeout.
-const rbacRequestTimeout = 10 * time.Second
 
 // rbacAnalysisTimeout is the per-request deadline for cross-cluster
 // permission summaries, which fan out over every context in the user's
@@ -75,7 +72,7 @@ func (s *Server) handleCanIHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), rbacRequestTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), k8s.RBACDefaultTimeout)
 	defer cancel()
 
 	result, err := s.k8sClient.CheckCanI(ctx, req.Cluster, req)
@@ -112,7 +109,7 @@ func (s *Server) handleClusterPermissionsHTTP(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), rbacRequestTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), k8s.RBACDefaultTimeout)
 	defer cancel()
 
 	cluster := r.URL.Query().Get("cluster")

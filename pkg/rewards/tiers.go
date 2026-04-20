@@ -1,21 +1,48 @@
+// Package rewards is the canonical source for contributor rank tiers.
+//
+// The contributor ladder (Observer → Explorer → Navigator → Pilot → Commander
+// → Captain → Admiral → Legend) was originally defined client-side in
+// web/src/types/rewards.ts. Phase 1 of RFC #8862 ports the definition to Go
+// so the backend can serve authoritative rank data (e.g. public badge
+// endpoint in Phase 2) without the TS and Go copies silently drifting.
+//
+// The TypeScript side now consumes a generated file at
+// web/src/types/rewards.generated.ts (produced by scripts/gen-rewards-types.ts
+// from this file). A CI drift check ensures the two stay in lockstep.
+//
+// See https://github.com/kubestellar/console/issues/8862 for the full RFC.
 package rewards
 
 import "math"
 
-// ContributorLevel defines a rank in the contributor ladder.
-type ContributorLevel struct {
-	Rank        int    `json:"rank"`
-	Name        string `json:"name"`
-	Icon        string `json:"icon"` // Lucide icon name
-	MinCoins    int    `json:"minCoins"`
-	Color       string `json:"color"`       // Tailwind color prefix
-	BgClass     string `json:"bgClass"`     // CSS class for background
-	TextClass   string `json:"textClass"`   // CSS class for text
-	BorderClass string `json:"borderClass"` // CSS class for border
+// Tier describes a single rung of the contributor ladder. Fields mirror the
+// TypeScript ContributorLevel interface at web/src/types/rewards.ts so that
+// the generated TS file is a drop-in replacement for the legacy hand-written
+// CONTRIBUTOR_LEVELS constant.
+type Tier struct {
+	// Rank is the ladder position, 1-indexed (Observer = 1, Legend = 8).
+	Rank int `json:"rank"`
+	// Name is the human-readable tier label used in UI.
+	Name string `json:"name"`
+	// Icon is the Lucide icon name rendered next to the tier label.
+	Icon string `json:"icon"`
+	// MinCoins is the inclusive lower bound of the tier's coin range.
+	MinCoins int `json:"minCoins"`
+	// Color is a Tailwind color prefix (e.g. "gray", "blue") used by
+	// callers that compute derived class names at render time.
+	Color string `json:"color"`
+	// BgClass is the Tailwind background class for the tier badge.
+	BgClass string `json:"bgClass"`
+	// TextClass is the Tailwind text color class for the tier badge.
+	TextClass string `json:"textClass"`
+	// BorderClass is the Tailwind border class for the tier badge.
+	BorderClass string `json:"borderClass"`
 }
 
-// ContributorLevels is the canonical list of contributor ranks.
-var ContributorLevels = []ContributorLevel{
+// ContributorLevels is the ordered (ascending by MinCoins) list of tiers.
+// DO NOT reorder or mutate at runtime — the TS codegen depends on the
+// source-file order and existing rank numbers are persisted in user data.
+var ContributorLevels = []Tier{
 	{
 		Rank:        1,
 		Name:        "Observer",
@@ -100,16 +127,17 @@ var ContributorLevels = []ContributorLevel{
 
 // ContributorLevelSummary provides progress information for a contributor.
 type ContributorLevelSummary struct {
-	Current     ContributorLevel  `json:"current"`
-	Next        *ContributorLevel `json:"next"`
-	Progress    int               `json:"progress"` // 0-100 percent to next level
-	CoinsToNext int               `json:"coinsToNext"`
+	Current     Tier  `json:"current"`
+	Next        *Tier `json:"next"`
+	Progress    int   `json:"progress"` // 0-100 percent to next level
+	CoinsToNext int   `json:"coinsToNext"`
 }
 
 // GetContributorLevel computes the rank details for a given coin total.
+// Returns a summary including progress to the next level.
 func GetContributorLevel(totalCoins int) ContributorLevelSummary {
-	var current ContributorLevel = ContributorLevels[0]
-	var next *ContributorLevel = nil
+	var current Tier = ContributorLevels[0]
+	var next *Tier = nil
 
 	for i := len(ContributorLevels) - 1; i >= 0; i-- {
 		if totalCoins >= ContributorLevels[i].MinCoins {
@@ -144,4 +172,17 @@ func GetContributorLevel(totalCoins int) ContributorLevelSummary {
 		Progress:    progress,
 		CoinsToNext: coinsToNext,
 	}
+}
+
+// GetTier returns the highest Tier whose MinCoins is ≤ totalCoins.
+// Phase 2's badge endpoint is the first Go caller and it has no use for the progress fields.
+func GetTier(totalCoins int) Tier {
+	current := ContributorLevels[0]
+	for i := len(ContributorLevels) - 1; i >= 0; i-- {
+		if totalCoins >= ContributorLevels[i].MinCoins {
+			current = ContributorLevels[i]
+			break
+		}
+	}
+	return current
 }
