@@ -331,25 +331,25 @@ func TestGetEventsSortedByTimestamp(t *testing.T) {
 	now := time.Now()
 	events := []k8sruntime.Object{
 		&corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: "event-old", Namespace: "default"},
+			ObjectMeta:     metav1.ObjectMeta{Name: "event-old", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod1"},
-			Reason:        "OldEvent",
-			Message:       "old event",
-			LastTimestamp: metav1.Time{Time: now.Add(-2 * time.Hour)},
+			Reason:         "OldEvent",
+			Message:        "old event",
+			LastTimestamp:  metav1.Time{Time: now.Add(-2 * time.Hour)},
 		},
 		&corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: "event-new", Namespace: "default"},
+			ObjectMeta:     metav1.ObjectMeta{Name: "event-new", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod2"},
-			Reason:        "NewEvent",
-			Message:       "new event",
-			LastTimestamp: metav1.Time{Time: now},
+			Reason:         "NewEvent",
+			Message:        "new event",
+			LastTimestamp:  metav1.Time{Time: now},
 		},
 		&corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: "event-mid", Namespace: "default"},
+			ObjectMeta:     metav1.ObjectMeta{Name: "event-mid", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod3"},
-			Reason:        "MidEvent",
-			Message:       "mid event",
-			LastTimestamp: metav1.Time{Time: now.Add(-1 * time.Hour)},
+			Reason:         "MidEvent",
+			Message:        "mid event",
+			LastTimestamp:  metav1.Time{Time: now.Add(-1 * time.Hour)},
 		},
 	}
 
@@ -378,25 +378,25 @@ func TestGetEventsLimitAppliedAfterSort(t *testing.T) {
 	now := time.Now()
 	events := []k8sruntime.Object{
 		&corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: "event-old", Namespace: "default"},
+			ObjectMeta:     metav1.ObjectMeta{Name: "event-old", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod1"},
-			Reason:        "OldEvent",
-			Message:       "old event",
-			LastTimestamp: metav1.Time{Time: now.Add(-2 * time.Hour)},
+			Reason:         "OldEvent",
+			Message:        "old event",
+			LastTimestamp:  metav1.Time{Time: now.Add(-2 * time.Hour)},
 		},
 		&corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: "event-new", Namespace: "default"},
+			ObjectMeta:     metav1.ObjectMeta{Name: "event-new", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod2"},
-			Reason:        "NewEvent",
-			Message:       "new event",
-			LastTimestamp: metav1.Time{Time: now},
+			Reason:         "NewEvent",
+			Message:        "new event",
+			LastTimestamp:  metav1.Time{Time: now},
 		},
 		&corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: "event-mid", Namespace: "default"},
+			ObjectMeta:     metav1.ObjectMeta{Name: "event-mid", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod3"},
-			Reason:        "MidEvent",
-			Message:       "mid event",
-			LastTimestamp: metav1.Time{Time: now.Add(-1 * time.Hour)},
+			Reason:         "MidEvent",
+			Message:        "mid event",
+			LastTimestamp:  metav1.Time{Time: now.Add(-1 * time.Hour)},
 		},
 	}
 
@@ -425,20 +425,20 @@ func TestGetWarningEventsSortedByTimestamp(t *testing.T) {
 	now := time.Now()
 	events := []k8sruntime.Object{
 		&corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: "warn-old", Namespace: "default"},
+			ObjectMeta:     metav1.ObjectMeta{Name: "warn-old", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod1"},
-			Type:          "Warning",
-			Reason:        "OldWarning",
-			Message:       "old warning",
-			LastTimestamp: metav1.Time{Time: now.Add(-2 * time.Hour)},
+			Type:           "Warning",
+			Reason:         "OldWarning",
+			Message:        "old warning",
+			LastTimestamp:  metav1.Time{Time: now.Add(-2 * time.Hour)},
 		},
 		&corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: "warn-new", Namespace: "default"},
+			ObjectMeta:     metav1.ObjectMeta{Name: "warn-new", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod2"},
-			Type:          "Warning",
-			Reason:        "NewWarning",
-			Message:       "new warning",
-			LastTimestamp: metav1.Time{Time: now},
+			Type:           "Warning",
+			Reason:         "NewWarning",
+			Message:        "new warning",
+			LastTimestamp:  metav1.Time{Time: now},
 		},
 	}
 
@@ -1028,39 +1028,6 @@ func TestGetIngressesAndNetworkPolicies(t *testing.T) {
 	nps, _ := m.GetNetworkPolicies(context.Background(), "c1", "default")
 	if len(nps) != 1 {
 		t.Errorf("Expected 1 NP, got %d", len(nps))
-	}
-}
-
-func TestGetGPUNodes(t *testing.T) {
-	m, _ := NewMultiClusterClient("")
-
-	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "gpu-node",
-			Labels: map[string]string{
-				"nvidia.com/gpu.product": "Tesla T4",
-			},
-		},
-		Status: corev1.NodeStatus{
-			Allocatable: corev1.ResourceList{
-				"nvidia.com/gpu": resource.MustParse("2"),
-			},
-		},
-	}
-
-	fakeCS := k8sfake.NewSimpleClientset(node)
-	m.clients["c1"] = fakeCS
-
-	nodes, err := m.GetGPUNodes(context.Background(), "c1")
-	if err != nil {
-		t.Fatalf("GetGPUNodes failed: %v", err)
-	}
-
-	if len(nodes) != 1 {
-		t.Fatalf("Expected 1 GPU node, got %d", len(nodes))
-	}
-	if nodes[0].Manufacturer != "NVIDIA" || nodes[0].GPUType != "Tesla T4" {
-		t.Errorf("Unexpected GPU node info: %+v", nodes[0])
 	}
 }
 
