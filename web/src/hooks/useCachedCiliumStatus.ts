@@ -1,7 +1,7 @@
 import { useCache, type RefreshCategory } from '../lib/cache'
 import { fetchCiliumStatus } from './useCachedData/agentFetchers'
 import { getDemoCiliumStatus } from './useCachedData/demoData'
-import type { CiliumStatus, CiliumNode } from '../types/cilium'
+import type { CiliumStatus } from '../types/cilium'
 
 
 const CACHE_KEY_CILIUM = 'cilium_status'

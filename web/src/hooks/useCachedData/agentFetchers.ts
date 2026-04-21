@@ -173,25 +173,12 @@ export async function fetchWorkloadsFromAgent(onProgress?: (partial: Workload[])
 // Cilium status fetcher
 // ============================================================================
 
-/** Shape returned by the /cilium-status agent endpoint */
-export interface CiliumStatusResponse {
-  status: 'Healthy' | 'Degraded' | 'Unhealthy'
-  nodes: Array<{ name: string; status: string; version: string }>
-  networkPolicies: number
-  endpoints: number
-  hubble: {
-    enabled: boolean
-    flowsPerSecond: number
-    metrics: { forwarded: number; dropped: number }
-  }
-}
-
 /**
  * Fetch aggregated Cilium status from the local agent.
  * Returns null when the agent is unavailable or the user is in demo mode,
  * which causes the useCache layer to fall back to demo data.
  */
-export async function fetchCiliumStatus(): Promise<CiliumStatusResponse | null> {
+export async function fetchCiliumStatus(): Promise<CiliumStatus | null> {
   if (isAgentUnavailable()) return null
 
   const token = localStorage.getItem(STORAGE_KEY_TOKEN)
