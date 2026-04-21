@@ -81,7 +81,8 @@ export async function fetchDeploymentsViaAgent(namespace?: string, onProgress?: 
     const timeoutId = setTimeout(() => controller.abort(), AGENT_HTTP_TIMEOUT_MS)
     const response = await fetch(`${LOCAL_AGENT_HTTP_URL}/deployments?${params}`, {
       signal: controller.signal,
-      headers: { Accept: 'application/json' } })
+      headers: { Accept: 'application/json' }
+    })
     clearTimeout(timeoutId)
 
     if (!response.ok) throw new Error(`Agent returned ${response.status}`)
@@ -92,7 +93,8 @@ export async function fetchDeploymentsViaAgent(namespace?: string, onProgress?: 
     // Always use the short name — agent echoes back context path as cluster
     return ((data.deployments || []) as Deployment[]).map(d => ({
       ...d,
-      cluster: name }))
+      cluster: name
+    }))
   })
 
   const accumulated: Deployment[] = []
@@ -126,7 +128,8 @@ export async function fetchWorkloadsFromAgent(onProgress?: (partial: Workload[])
     const tid = setTimeout(() => ctrl.abort(), AGENT_HTTP_TIMEOUT_MS)
     const res = await fetch(`${LOCAL_AGENT_HTTP_URL}/deployments?${params}`, {
       signal: ctrl.signal,
-      headers: { Accept: 'application/json' } })
+      headers: { Accept: 'application/json' }
+    })
     clearTimeout(tid)
 
     if (!res.ok) throw new Error(`Agent ${res.status}`)
@@ -148,7 +151,8 @@ export async function fetchWorkloadsFromAgent(onProgress?: (partial: Workload[])
         readyReplicas: Number(d.readyReplicas || 0),
         status: ws,
         image: String(d.image || ''),
-        createdAt: new Date().toISOString() }
+        createdAt: new Date().toISOString()
+      }
     })
   })
 
@@ -161,4 +165,25 @@ export async function fetchWorkloadsFromAgent(onProgress?: (partial: Workload[])
   }
   await settledWithConcurrency(tasks, undefined, handleSettled)
   return accumulated.length > 0 ? accumulated : null
+}
+
+/**
+ * Fetch Cilium status metrics via agent or backend
+ */
+export async function fetchCiliumStatus(): Promise<any> {
+  const token = localStorage.getItem('kubestellar-token')
+  if (!token || token === 'demo-token') return null
+
+  try {
+    const res = await fetch('/api/mcp/cilium/status', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
 }
