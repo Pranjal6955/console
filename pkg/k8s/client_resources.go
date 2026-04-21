@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -62,20 +63,16 @@ func (m *MultiClusterClient) GetPods(ctx context.Context, contextName, namespace
 					ci.Message = cs.State.Terminated.Message
 				}
 			}
-			// Check for GPU resource requests (nvidia.com/gpu, amd.com/gpu)
-			if c.Resources.Requests != nil {
-				for resourceName, qty := range c.Resources.Requests {
-					if resourceName == "nvidia.com/gpu" || resourceName == "amd.com/gpu" {
-						ci.GPURequested = int(qty.Value())
-					}
-				}
-			}
-			if ci.GPURequested == 0 && c.Resources.Limits != nil {
-				for resourceName, qty := range c.Resources.Limits {
-					if resourceName == "nvidia.com/gpu" || resourceName == "amd.com/gpu" {
-						ci.GPURequested = int(qty.Value())
-					}
-				}
+			// Check for GPU / accelerator resource requests using the shared
+			// SumGPURequested helper (pkg/k8s/gpu_resources.go). Sums across ALL
+			// known GPU resource names so containers requesting more than one
+			// accelerator type (e.g., nvidia.com/gpu=1 + habana.ai/gaudi=2) are
+			// counted correctly. Previously each matching name overwrote the
+			// previous, so the final value depended on map iteration order
+			// (flagged on PR Issue 9204 follow-up review).
+			ci.GPURequested = SumGPURequested(c.Resources.Requests)
+			if ci.GPURequested == 0 {
+				ci.GPURequested = SumGPURequested(c.Resources.Limits)
 			}
 			containers = append(containers, ci)
 		}
@@ -718,7 +715,10 @@ func (m *MultiClusterClient) GetServices(ctx context.Context, contextName, names
 	// real number of ready addresses backing each service. We list in the
 	// same namespace scope as the Services list call so the result set is
 	// comparable. If this call fails we still return services with
-	// Endpoints=0 rather than failing the whole request (issue #6150).
+	// Endpoints=0 rather than failing the whole request (issue #6150), but
+	// we log the error so operators can see RBAC / connectivity problems
+	// instead of silently seeing every service report zero ready endpoints
+	// (issue #9091).
 	endpointReadyCounts := make(map[string]int) // key: "<namespace>/<name>"
 	if epList, epErr := client.CoreV1().Endpoints(namespace).List(ctx, metav1.ListOptions{}); epErr == nil {
 		for _, ep := range epList.Items {
@@ -728,6 +728,9 @@ func (m *MultiClusterClient) GetServices(ctx context.Context, contextName, names
 			}
 			endpointReadyCounts[ep.Namespace+"/"+ep.Name] = ready
 		}
+	} else {
+		slog.Error("[Services] failed to list endpoints for readiness counts",
+			"cluster", contextName, "namespace", namespace, "error", epErr)
 	}
 
 	var result []Service

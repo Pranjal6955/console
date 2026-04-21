@@ -25,6 +25,31 @@ const STORAGE_KEY = 'iframe_embed_saved'
 const DEFAULT_HEIGHT = 400
 const DEFAULT_SANDBOX = ['allow-scripts', 'allow-same-origin', 'allow-forms', 'allow-popups']
 
+/**
+ * Allowed URL schemes for iframe embedding.
+ * javascript:, data:, and other schemes must never be loaded in an iframe src
+ * because they bypass sandbox restrictions and execute in the embedder's origin.
+ */
+const ALLOWED_URL_SCHEMES = ['http:', 'https:']
+
+/**
+ * Validate a URL before using it as an iframe src.
+ * Returns the original URL if it has an allowed scheme, or an empty string
+ * if the scheme is disallowed (e.g. javascript:, data:, blob:).
+ * This prevents XSS-through-DOM attacks via scheme injection.
+ */
+function sanitizeIframeUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    // Return parsed.href (URL object property) not the raw input — this breaks
+    // CodeQL's js/xss-through-dom taint chain at the URL parse boundary.
+    return ALLOWED_URL_SCHEMES.includes(parsed.protocol) ? parsed.href : ''
+  } catch {
+    // Relative or malformed URLs — disallow
+    return ''
+  }
+}
+
 // Preset embeds for quick setup
 const PRESET_EMBEDS = [
   { title: 'Grafana', url: 'http://localhost:3000', icon: '📊' },
@@ -45,7 +70,7 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
     return `embed_${Date.now()}`
   })
 
-  const [url, setUrl] = useState(config?.url || '')
+  const [url, setUrl] = useState(sanitizeIframeUrl(config?.url || ''))
   const [title, setTitle] = useState(config?.title || 'Embed')
   const [refreshInterval, setRefreshInterval] = useState(config?.refreshInterval || 0)
   const [height, setHeight] = useState(config?.height || DEFAULT_HEIGHT)
@@ -71,12 +96,15 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
     if (!config?.url) {
       const saved = savedEmbeds.find(e => e.id === instanceId)
       if (saved) {
-        setUrl(saved.url)
+        // Sanitize URL loaded from localStorage to guard against scheme injection
+        // (e.g. javascript: or data: URLs stored by a compromised page)
+        const safeUrl = sanitizeIframeUrl(saved.url)
+        setUrl(safeUrl)
         setTitle(saved.title)
         setRefreshInterval(saved.refreshInterval)
-        setUrlInput(saved.url)
+        setUrlInput(safeUrl)
         setTitleInput(saved.title)
-        setShowSettings(false)
+        setShowSettings(!safeUrl)
       }
     }
   }, [instanceId, config?.url, savedEmbeds])
@@ -85,12 +113,13 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
     if (!iframeRef.current || !url) return
     setIsLoading(true)
     setLoadError(null)
-    // Force iframe reload by resetting src
-    const currentSrc = iframeRef.current.src
+    // Force iframe reload using the sanitized `url` state — never read back
+    // from iframeRef.current.src (DOM property), which is an XSS-through-DOM
+    // sink when written back without re-validation.
     iframeRef.current.src = ''
     setTimeout(() => {
       if (iframeRef.current) {
-        iframeRef.current.src = currentSrc
+        iframeRef.current.src = sanitizeIframeUrl(url)
       }
     }, 50)
     setLastRefresh(new Date())
@@ -120,7 +149,8 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
   const handleSaveConfig = () => {
     if (!urlInput.trim()) return
 
-    const newUrl = urlInput.trim()
+    const newUrl = sanitizeIframeUrl(urlInput.trim())
+    if (!newUrl) return
     const newTitle = titleInput.trim() || 'Embed'
 
     setUrl(newUrl)

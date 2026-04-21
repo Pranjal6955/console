@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import { setupAuthLocalStorage } from '../helpers/setup'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -35,7 +36,15 @@ interface SecurityReport {
 
 const IS_CI = !!process.env.CI
 const CI_TIMEOUT_MULTIPLIER = 2
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5174'
+// Issue 9242: previous fallback was 'http://localhost:5174' (Vite dev
+// server), which diverges from playwright.config.ts:72 which uses
+// 'http://localhost:8080' (the Go backend that serves both API and the
+// built frontend). When the env var was unset, multi-page security
+// checks at lines 707-751 and the auth-bypass check at line 772
+// navigated to the wrong port and silently failed/skipped. Match the
+// project default so explicit-URL navigations work in both
+// configurations.
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,16 +127,6 @@ async function setupMockServer(page: Page) {
   })
 }
 
-async function setupAuth(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem('token', 'test-jwt-token')
-    localStorage.setItem('kc-demo-mode', 'false')
-    localStorage.setItem('kc-onboarding-complete', 'true')
-    localStorage.setItem('kc-tour-complete', 'true')
-    localStorage.setItem('kc-setup-complete', 'true')
-  })
-}
-
 // ---------------------------------------------------------------------------
 // Test
 // ---------------------------------------------------------------------------
@@ -156,7 +155,12 @@ test('security compliance — frontend security audit', async ({ page }, testInf
 
   // ── Setup ──────────────────────────────────────────────────────────────
   console.log('[Security] Phase 1: Setup')
-  await setupAuth(page)
+  await setupAuthLocalStorage(page, {
+    demoMode: false,
+    onboardingComplete: true,
+    tourComplete: true,
+    setupComplete: true,
+  })
   await setupMockServer(page)
 
   // ── Phase 2: Load the app ──────────────────────────────────────────────

@@ -290,13 +290,20 @@ export async function setupLiveMocks(page: Page, options?: LiveMockOptions): Pro
   }
 
   // 3. Generic MCP REST endpoints
+  //
+  // Issue 9086: the previous `const delay = 100 + Math.random() * 200` made
+  // every mock response arrive at a different time on each test run, which
+  // turned "card A appears before timeout X" assertions into flaky tests.
+  // Use a deterministic fixed delay (the midpoint of the old 100-300ms band)
+  // so test runs are reproducible. Variable delays, if ever needed to model
+  // real-world timing, should be driven by LiveMockOptions with a seed.
+  const GENERIC_MCP_DELAY_MS = 200
   await page.route('**/api/mcp/**', async (route) => {
     if (route.request().url().includes('/stream')) { await route.fallback(); return }
     const endpoint = route.request().url().match(/\/api\/mcp\/([^/?]+)/)?.[1] || ''
     if (shouldError(endpoint)) { await fulfillError(route, endpoint); return }
     await maybeDelay()
-    const delay = 100 + Math.random() * 200
-    await new Promise(r => setTimeout(r, delay))
+    await new Promise(r => setTimeout(r, GENERIC_MCP_DELAY_MS))
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -513,26 +520,29 @@ export async function setLiveColdMode(page: Page, user?: typeof mockUser): Promi
   const u = user || mockUser
   await page.addInitScript(
     ({ user: usr }: { user: typeof mockUser }) => {
-      localStorage.setItem('token', 'test-token')
-      localStorage.setItem('kc-demo-mode', 'false')
-      localStorage.setItem('demo-user-onboarded', 'true')
-      localStorage.setItem('kubestellar-console-tour-completed', 'true')
-      localStorage.setItem('kc-user-cache', JSON.stringify(usr))
-      localStorage.setItem('kc-backend-status', JSON.stringify({ available: true, timestamp: Date.now() }))
-      localStorage.setItem('kc-sqlite-migrated', '2')
+      // Guard: about:blank has no origin and throws on localStorage access.
+      try {
+        localStorage.setItem('token', 'test-token')
+        localStorage.setItem('kc-demo-mode', 'false')
+        localStorage.setItem('demo-user-onboarded', 'true')
+        localStorage.setItem('kubestellar-console-tour-completed', 'true')
+        localStorage.setItem('kc-user-cache', JSON.stringify(usr))
+        localStorage.setItem('kc-backend-status', JSON.stringify({ available: true, timestamp: Date.now() }))
+        localStorage.setItem('kc-sqlite-migrated', '2')
 
-      // Clear all caches for cold start — use allowlist so card-specific backup
-      // keys (e.g. nightly-e2e-cache) are also cleared
-      const COLD_KEEP_KEYS = new Set([
-        'token', 'kc-demo-mode', 'demo-user-onboarded',
-        'kubestellar-console-tour-completed', 'kc-user-cache',
-        'kc-backend-status', 'kc-sqlite-migrated',
-      ])
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i)
-        if (!key || COLD_KEEP_KEYS.has(key)) continue
-        localStorage.removeItem(key)
-      }
+        // Clear all caches for cold start — use allowlist so card-specific backup
+        // keys (e.g. nightly-e2e-cache) are also cleared
+        const COLD_KEEP_KEYS = new Set([
+          'token', 'kc-demo-mode', 'demo-user-onboarded',
+          'kubestellar-console-tour-completed', 'kc-user-cache',
+          'kc-backend-status', 'kc-sqlite-migrated',
+        ])
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i)
+          if (!key || COLD_KEEP_KEYS.has(key)) continue
+          localStorage.removeItem(key)
+        }
+      } catch { /* about:blank has no origin */ }
     },
     { user: u },
   )
@@ -581,14 +591,17 @@ export async function setMode(page: Page, mode: 'demo' | 'live' | 'live+cache', 
 
   await page.addInitScript(
     (values: Record<string, string>) => {
-      for (const [k, v] of Object.entries(values)) localStorage.setItem(k, v)
-      // Clear stale dashboard card layouts
-      const keysToRemove: string[] = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && key.endsWith('-dashboard-cards')) keysToRemove.push(key)
-      }
-      keysToRemove.forEach(k => localStorage.removeItem(k))
+      // Guard: about:blank has no origin and throws on localStorage access.
+      try {
+        for (const [k, v] of Object.entries(values)) localStorage.setItem(k, v)
+        // Clear stale dashboard card layouts
+        const keysToRemove: string[] = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key && key.endsWith('-dashboard-cards')) keysToRemove.push(key)
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k))
+      } catch { /* about:blank has no origin */ }
     },
     lsValues,
   )

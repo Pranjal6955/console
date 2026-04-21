@@ -30,8 +30,16 @@ func (m *MultiClusterClient) GetGPUNodes(ctx context.Context, contextName string
 	}
 
 	// Fetch all pods once upfront to calculate accelerator allocations per node
-	// This is much faster than querying pods per-node for large clusters
-	allPods, _ := client.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	// This is much faster than querying pods per-node for large clusters.
+	// A failure here is non-fatal — we still return the node inventory with
+	// zero allocations, but we log the error so operators can see RBAC /
+	// connectivity problems rather than seeing silently wrong allocation
+	// numbers in the UI (issue #9091).
+	allPods, allPodsErr := client.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if allPodsErr != nil {
+		slog.Error("[GPUNodes] failed to list pods for allocation accounting",
+			"cluster", contextName, "error", allPodsErr)
+	}
 	// Track allocations by node and accelerator type
 	gpuAllocationByNode := make(map[string]int) // GPU allocations
 	tpuAllocationByNode := make(map[string]int) // TPU allocations
@@ -44,26 +52,12 @@ func (m *MultiClusterClient) GetGPUNodes(ctx context.Context, contextName string
 				continue
 			}
 			for _, container := range pod.Spec.Containers {
-				// Check GPU requests (NVIDIA, AMD, Intel GPU, Intel Gaudi/Habana)
-				// Intel Gaudi is classified as AcceleratorGPU, so track in gpuAllocationByNode
-				if gpuReq, ok := container.Resources.Requests["nvidia.com/gpu"]; ok {
-					gpuAllocationByNode[nodeName] += int(gpuReq.Value())
-				}
-				if gpuReq, ok := container.Resources.Requests["amd.com/gpu"]; ok {
-					gpuAllocationByNode[nodeName] += int(gpuReq.Value())
-				}
-				if gpuReq, ok := container.Resources.Requests["gpu.intel.com/i915"]; ok {
-					gpuAllocationByNode[nodeName] += int(gpuReq.Value())
-				}
-				if gpuReq, ok := container.Resources.Requests["habana.ai/gaudi"]; ok {
-					gpuAllocationByNode[nodeName] += int(gpuReq.Value())
-				}
-				if gpuReq, ok := container.Resources.Requests["habana.ai/gaudi2"]; ok {
-					gpuAllocationByNode[nodeName] += int(gpuReq.Value())
-				}
-				if gpuReq, ok := container.Resources.Requests["intel.com/gaudi"]; ok {
-					gpuAllocationByNode[nodeName] += int(gpuReq.Value())
-				}
+				// Sum GPU requests (NVIDIA, AMD, Intel GPU, Intel Gaudi/Habana)
+				// via the shared GPUResourceNames list in gpu_resources.go so this
+				// path and the pod-level tracker in client_resources.go cannot
+				// drift. Intel Gaudi is classified as AcceleratorGPU, so it rolls
+				// into gpuAllocationByNode alongside nvidia/amd/i915.
+				gpuAllocationByNode[nodeName] += SumGPURequested(container.Resources.Requests)
 				// Check TPU requests (Google Cloud)
 				if tpuReq, ok := container.Resources.Requests["google.com/tpu"]; ok {
 					tpuAllocationByNode[nodeName] += int(tpuReq.Value())
@@ -342,14 +336,27 @@ func (m *MultiClusterClient) GetGPUNodeHealth(ctx context.Context, contextName s
 		operatorPods = append(operatorPods, pods.Items...)
 	}
 
-	// 4. Find non-running pods for stuck pod detection (exclude Succeeded/Running)
-	allPods, _ := client.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	// 4. Find non-running pods for stuck pod detection (exclude Succeeded/Running).
+	// A failure here is non-fatal — we still return per-node health, but we
+	// log so operators can see why stuck-pod detection is effectively
+	// disabled (issue #9091).
+	allPods, allPodsErr := client.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if allPodsErr != nil {
+		slog.Error("[GPUNodeHealth] failed to list pods for stuck pod detection",
+			"cluster", contextName, "error", allPodsErr)
+	}
 
-	// 5. Get warning events from the last hour for GPU reset detection
+	// 5. Get warning events from the last hour for GPU reset detection.
+	// Non-fatal, but log so operators can see why GPU-reset signals are
+	// missing instead of silently getting a clean health state (issue #9091).
 	oneHourAgo := time.Now().Add(-1 * time.Hour)
-	events, _ := client.CoreV1().Events("").List(ctx, metav1.ListOptions{
+	events, eventsErr := client.CoreV1().Events("").List(ctx, metav1.ListOptions{
 		FieldSelector: "type=Warning",
 	})
+	if eventsErr != nil {
+		slog.Error("[GPUNodeHealth] failed to list warning events for GPU reset detection",
+			"cluster", contextName, "error", eventsErr)
+	}
 
 	// 6. Build health status for each GPU node
 	checkedAt := time.Now().UTC().Format(time.RFC3339)

@@ -12,9 +12,13 @@
  * Output: { schemaVersion, label, message, color, namedLogo } per shields.io spec
  */
 
+import { getStore } from "@netlify/blobs";
+
 const GITHUB_API = "https://api.github.com";
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const API_TIMEOUT_MS = 15_000;
+const BLOB_CACHE_STORE = "acmm-scan";
+const BLOB_CACHE_TTL_MS = 60 * 60 * 1000;
 const LEVEL_COMPLETION_THRESHOLD = 0.7;
 /** Maximum maturity level scanned (L6 = Fully Autonomous). L1 is the
  *  starting level; threshold walk gates L2 through MAX_LEVEL. */
@@ -31,6 +35,21 @@ const MAX_LEVEL = 6;
 const BADGE_CACHE_SECONDS = 3600;
 
 /**
+ * Agent instruction files are an OR group for L2: any one vendor-specific or
+ * vendor-neutral file satisfies the "Instructed" signal. A project using the
+ * vendor-agnostic AGENTS.md (agents.md spec) should reach L2 just as easily
+ * as one that stacks multiple vendor-specific configs. The virtual criterion
+ * "acmm:agent-instructions" is synthesised in computeLevel() before the level
+ * walk if any member of this set is present in detectedIds. Issue #9169.
+ */
+const AGENT_INSTRUCTION_FILE_IDS = new Set([
+  "acmm:claude-md",
+  "acmm:copilot-instructions",
+  "acmm:agents-md",
+  "acmm:cursor-rules",
+]);
+
+/**
  * ACMM criteria grouped by level. MUST mirror the scannable entries in
  * acmm-scan.mts CRITERIA (IDs and level assignments).
  *
@@ -39,13 +58,14 @@ const BADGE_CACHE_SECONDS = 3600;
  * taxonomy, so the badge always computed to L1 ("5/10" for kubestellar/
  * console) regardless of the repo's real maturity. When adding / renaming
  * criteria in acmm-scan.mts, update this map and the LEVEL_NAMES below.
+ *
+ * L2 uses a virtual "acmm:agent-instructions" criterion (synthesised in
+ * computeLevel) rather than the four individual instruction-file IDs, so that
+ * any one vendor-neutral or vendor-specific file satisfies the L2 gate.
  */
 const ACMM_IDS_BY_LEVEL: Record<number, string[]> = {
   2: [
-    "acmm:claude-md",
-    "acmm:copilot-instructions",
-    "acmm:agents-md",
-    "acmm:cursor-rules",
+    "acmm:agent-instructions", // virtual OR: any of claude-md / agents-md / copilot-instructions / cursor-rules
     "acmm:prompts-catalog",
     "acmm:editor-config",
   ],
@@ -122,7 +142,15 @@ function corsHeaders(origin: string | null): Record<string, string> {
   return headers;
 }
 
-function computeLevel(detectedIds: Set<string>): { level: number; totalDetected: number; totalAcmm: number } {
+function computeLevel(rawDetectedIds: Set<string>): { level: number; totalDetected: number; totalAcmm: number } {
+  // Synthesise the virtual L2 criterion before the level walk.
+  // Any one instruction file (vendor-neutral AGENTS.md or vendor-specific
+  // CLAUDE.md / copilot-instructions / .cursorrules) satisfies the group.
+  const detectedIds = new Set(rawDetectedIds);
+  if ([...AGENT_INSTRUCTION_FILE_IDS].some((id) => detectedIds.has(id))) {
+    detectedIds.add("acmm:agent-instructions");
+  }
+
   let currentLevel = 1;
   let totalDetected = 0;
   let totalAcmm = 0;
@@ -133,8 +161,11 @@ function computeLevel(detectedIds: Set<string>): { level: number; totalDetected:
     totalAcmm += required.length;
     totalDetected += detected;
     if (required.length === 0 || stopPromotion) continue;
+    // L2 "Instructed" is reached with any single criterion (the project has
+    // started using AI tooling); higher levels use the 70 % threshold.
+    const threshold = n === 2 ? 1 / required.length : LEVEL_COMPLETION_THRESHOLD;
     const ratio = detected / required.length;
-    if (ratio >= LEVEL_COMPLETION_THRESHOLD) {
+    if (ratio >= threshold) {
       currentLevel = n;
     } else {
       // Stop promoting levels after the first gap, but keep counting
@@ -148,8 +179,30 @@ function computeLevel(detectedIds: Set<string>): { level: number; totalDetected:
   return { level: currentLevel, totalDetected, totalAcmm };
 }
 
-async function fetchDetectedIds(origin: string, repo: string): Promise<string[]> {
-  const url = `${origin}/api/acmm/scan?repo=${encodeURIComponent(repo)}`;
+async function fetchDetectedIds(origin: string, repo: string, force = false): Promise<string[]> {
+  // Fast path: read directly from Netlify Blobs (same store the scan function writes to).
+  // This avoids a same-origin HTTP round-trip that frequently times out inside
+  // Netlify Functions (cold-start + CDN routing overhead exceeds API_TIMEOUT_MS).
+  if (!force) {
+    try {
+      const store = getStore(BLOB_CACHE_STORE);
+      const cacheKey = `scan:${repo}`;
+      const raw = await store.get(cacheKey, { type: "json" });
+      if (raw) {
+        const entry = raw as { scannedAt?: string; detectedIds?: string[] };
+        const age = entry.scannedAt ? Date.now() - new Date(entry.scannedAt).getTime() : Infinity;
+        if (age < BLOB_CACHE_TTL_MS) {
+          return entry.detectedIds || [];
+        }
+      }
+    } catch {
+      // blob read failed — fall through to HTTP
+    }
+  }
+
+  // HTTP path: call the scan endpoint (forces a fresh GitHub scan when force=true).
+  const forceParam = force ? "&force=true" : "";
+  const url = `${origin}/api/acmm/scan?repo=${encodeURIComponent(repo)}${forceParam}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(API_TIMEOUT_MS) });
   if (!res.ok) {
     throw new Error(`scan returned ${res.status}`);
@@ -169,7 +222,8 @@ async function fetchDetectedIds(origin: string, repo: string): Promise<string[]>
  * on any repo), so every fallback path computed to L1.
  */
 const BADGE_FALLBACK_PATHS: Record<string, readonly string[]> = {
-  // L2
+  // L2 — individual instruction files still detected; computeLevel synthesises
+  // the virtual "acmm:agent-instructions" from any one of these matches.
   "acmm:claude-md": ["CLAUDE.md", ".claude/CLAUDE.md"],
   "acmm:copilot-instructions": [".github/copilot-instructions.md"],
   "acmm:agents-md": ["AGENTS.md"],
@@ -286,6 +340,7 @@ export default async (req: Request) => {
   const headers = corsHeaders(origin);
   const url = new URL(req.url);
   const repo = url.searchParams.get("repo") || "";
+  const force = url.searchParams.get("force") === "true";
 
   if (!REPO_RE.test(repo)) {
     return new Response(
@@ -305,7 +360,7 @@ export default async (req: Request) => {
 
   let detectedIds: string[] = [];
   try {
-    detectedIds = await fetchDetectedIds(url.origin, repo);
+    detectedIds = await fetchDetectedIds(url.origin, repo, force);
   } catch {
     const token = process.env.GITHUB_TOKEN || "";
     try {

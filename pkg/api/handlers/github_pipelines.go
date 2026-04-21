@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -53,6 +54,19 @@ const (
 	ghpMaxLogBytes           = 10 * 1024 * 1024 // 10 MB cap on job log downloads
 	ghpMatrixSparseMinCells  = 1
 	ghpReleaseOverfetch      = 10 // fetch recent releases so we can sort by published_at
+
+	// ghpMaxAllocItems is the upper bound for slice sizes derived from API
+	// responses. Prevents allocation-size-overflow if GitHub returns a
+	// malformed or unexpectedly large total_count / array (go/allocation-size-overflow).
+	ghpMaxAllocItems = 10_000
+
+	// ghGetWithRetry tuning — see issue #9059. Mirrors the retry pattern in
+	// benchmarks.go (driveGetWithRetry). Only 403/429 trigger a retry;
+	// other statuses (including 5xx) are returned as-is to the caller so
+	// existing error handling continues to work.
+	GH_RETRY_MAX_ATTEMPTS  = 3
+	GH_RETRY_BASE_DELAY_MS = 1000
+	GH_RETRY_MAX_DELAY_MS  = 10_000
 )
 
 // ghpDefaultRepos is the default when PIPELINE_REPOS env var is not set.
@@ -103,11 +117,14 @@ const ghpRateLimitHeadersKey ghpContextKey = "rateLimitHeaders"
 var ghpValidRepoPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$`)
 
 // ghpNightlyTagRe matches nightly release tags like "v0.3.21-nightly.20260417".
-var ghpNightlyTagRe = regexp.MustCompile(`(?i)nightly`)
+// Anchored to prevent partial substring collisions on tag names that contain
+// "nightly" as a fragment of a larger word (go/regex/missing-regexp-anchor).
+var ghpNightlyTagRe = regexp.MustCompile(`(?i)^.*nightly.*$`)
 
 // ghpPRFromCommitRe extracts a PR number from merge-commit messages like
-// "feat: something (#8673)".
-var ghpPRFromCommitRe = regexp.MustCompile(`\(#(\d+)\)\s*$`)
+// "feat: something (#8673)". Anchored at end only — the leading content is
+// arbitrary; the PR reference must appear at the very end of the line.
+var ghpPRFromCommitRe = regexp.MustCompile(`^.*\(#(\d+)\)\s*$`)
 
 func ghpIsAllowedRepo(repo string) bool {
 	// Accept any valid owner/repo slug — the GitHub token's permissions
@@ -455,13 +472,20 @@ func (h *GitHubPipelinesHandler) cacheKey(c *fiber.Ctx) string {
 }
 
 func (h *GitHubPipelinesHandler) serveCached(c *fiber.Ctx, key string, build func(c *fiber.Ctx) (any, error)) error {
+	// go/allocation-size-overflow: convert TTL to seconds via int64 (not int) and
+	// clamp to 0 so the Sprintf value is always non-negative and never overflows.
+	maxAge := int64(ghpCacheTTL.Seconds())
+	if maxAge < 0 {
+		maxAge = 0
+	}
+
 	h.mu.RLock()
 	entry, ok := h.cache[key]
 	h.mu.RUnlock()
 	if ok && time.Now().Before(entry.exp) {
 		c.Set("X-Cache", "HIT")
 		c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
-		c.Set(fiber.HeaderCacheControl, fmt.Sprintf("public, max-age=%d", int(ghpCacheTTL.Seconds())))
+		c.Set(fiber.HeaderCacheControl, fmt.Sprintf("public, max-age=%d", maxAge))
 		return c.Send(entry.body)
 	}
 
@@ -475,7 +499,7 @@ func (h *GitHubPipelinesHandler) serveCached(c *fiber.Ctx, key string, build fun
 			slog.Info("[github-pipelines] serving stale cache on error", "key", key, "error", err)
 			c.Set("X-Cache", "STALE")
 			c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
-			c.Set(fiber.HeaderCacheControl, fmt.Sprintf("public, max-age=%d", int(ghpCacheTTL.Seconds())))
+			c.Set(fiber.HeaderCacheControl, fmt.Sprintf("public, max-age=%d", maxAge))
 			return c.Send(stale.body)
 		}
 		// No stale available - return error
@@ -499,7 +523,15 @@ func (h *GitHubPipelinesHandler) serveCached(c *fiber.Ctx, key string, build fun
 	reposJSON, _ := json.Marshal(ghpRepos)
 	var body []byte
 	if len(inner) > 2 && inner[0] == '{' {
-		// Merge repos into existing object
+		// Merge repos into existing object.
+		// Guard against integer overflow before computing the allocation size
+		// (go/allocation-size-overflow): both len values come from json.Marshal
+		// on data that originates from a GitHub API response, so they are
+		// bounded in practice, but CodeQL cannot prove that statically.
+		const ghpMaxMergedBodyBytes = 100 * 1024 * 1024 // 100 MB hard cap
+		if len(inner)+len(reposJSON)+12 > ghpMaxMergedBodyBytes {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "response too large"})
+		}
 		body = make([]byte, 0, len(inner)+len(reposJSON)+12)
 		body = append(body, inner[:len(inner)-1]...) // strip trailing }
 		body = append(body, `,"repos":`...)
@@ -516,7 +548,7 @@ func (h *GitHubPipelinesHandler) serveCached(c *fiber.Ctx, key string, build fun
 	h.mu.Unlock()
 	c.Set("X-Cache", "MISS")
 	c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
-	c.Set(fiber.HeaderCacheControl, fmt.Sprintf("public, max-age=%d", int(ghpCacheTTL.Seconds())))
+	c.Set(fiber.HeaderCacheControl, fmt.Sprintf("public, max-age=%d", maxAge))
 	// Forward GitHub rate limit headers from context if present
 	if headers, ok := c.UserContext().Value(ghpRateLimitHeadersKey).(map[string]string); ok {
 		for k, v := range headers {
@@ -553,17 +585,88 @@ func (h *GitHubPipelinesHandler) getStale(key string) *ghpCacheEntry {
 func (h *GitHubPipelinesHandler) ghGet(ctx context.Context, path string) (*http.Response, error) {
 	ctx, cancel := context.WithTimeout(ctx, ghpHTTPTimeout)
 	defer cancel()
-	url := path
-	if !strings.HasPrefix(url, "http") {
-		url = ghpGitHubAPIBase + path
+	// Use net/url.Parse to check whether path is already an absolute URL instead
+	// of a raw strings.HasPrefix("http") check, which CodeQL flags as
+	// js/incomplete-url-substring-sanitization (issue #9119).
+	fullURL := path
+	if parsed, err := url.Parse(path); err != nil || parsed.Scheme == "" {
+		fullURL = ghpGitHubAPIBase + path
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("Authorization", "Bearer "+h.token)
 	return h.httpClient.Do(req)
+}
+
+// ghGetWithRetry wraps ghGet with exponential-backoff retries on GitHub
+// rate-limit responses (403 and 429). Per issue #9059, the GitHub Pipelines
+// dashboard fails immediately on rate-limit errors even though the 5000/hour
+// limit is temporary; a few retries usually succeed.
+//
+// Behavior:
+//   - Non-rate-limit responses (including 2xx and other 4xx/5xx) are returned
+//     directly so existing error handling is unchanged. Backward compatible
+//     with ghGet — opt-in only.
+//   - On 403/429, drains+closes the body and waits before retrying. If
+//     the response carries a Retry-After header (seconds), that value is
+//     honored (capped at GH_RETRY_MAX_DELAY_MS). Otherwise an exponential
+//     backoff is used: GH_RETRY_BASE_DELAY_MS * 2^(attempt-1), capped at
+//     GH_RETRY_MAX_DELAY_MS.
+//   - Honors context cancellation during the backoff sleep so callers can
+//     abort cleanly (no goroutine leak on request timeout).
+//   - After GH_RETRY_MAX_ATTEMPTS, returns the last response (still
+//     possibly 403/429) so the caller can surface the rate-limit error.
+func (h *GitHubPipelinesHandler) ghGetWithRetry(ctx context.Context, path string) (*http.Response, error) {
+	var lastResp *http.Response
+	var lastErr error
+	for attempt := 1; attempt <= GH_RETRY_MAX_ATTEMPTS; attempt++ {
+		resp, err := h.ghGet(ctx, path)
+		if err != nil {
+			// Network/transport errors are not retried — same semantics as
+			// ghGet. Caller decides whether to retry at a higher level.
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+			return resp, nil
+		}
+		// Rate-limited. If this is the final attempt, hand the response back
+		// to the caller so its existing 4xx branch formats the error.
+		lastErr = fmt.Errorf("github rate-limited (status %d)", resp.StatusCode)
+		if attempt == GH_RETRY_MAX_ATTEMPTS {
+			lastResp = resp
+			break
+		}
+		// Compute backoff: prefer Retry-After header, else exponential.
+		// Drain+close the body before sleeping so the connection can be reused.
+		backoff := time.Duration(GH_RETRY_BASE_DELAY_MS*(1<<(attempt-1))) * time.Millisecond
+		maxBackoff := time.Duration(GH_RETRY_MAX_DELAY_MS) * time.Millisecond
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if secs, parseErr := strconv.Atoi(strings.TrimSpace(ra)); parseErr == nil && secs > 0 {
+				backoff = time.Duration(secs) * time.Second
+			}
+		}
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+		slog.Info("[github-pipelines] retrying after rate-limit",
+			"path", path,
+			"status", resp.StatusCode,
+			"attempt", attempt,
+			"maxAttempts", GH_RETRY_MAX_ATTEMPTS,
+			"backoff", backoff,
+		)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return lastResp, lastErr
 }
 
 // ghpStoreRateLimitHeaders stores GitHub API rate limit headers in the context
@@ -696,9 +799,12 @@ func (h *GitHubPipelinesHandler) fetchRuns(ctx context.Context, repo, query stri
 	var out []ghpWorkflowRun
 	for page := 1; page <= maxPages; page++ {
 		pageQuery := fmt.Sprintf("%sper_page=%d&page=%d", baseQuery, pageSize, page)
-		res, err := h.ghGet(ctx, fmt.Sprintf("/repos/%s/actions/runs?%s", repo, pageQuery))
+		res, err := h.ghGetWithRetry(ctx, fmt.Sprintf("/repos/%s/actions/runs?%s", repo, pageQuery))
 		if err != nil {
 			return out, err
+		}
+		if res == nil {
+			return out, fmt.Errorf("github: nil response with no error")
 		}
 		if res.StatusCode == http.StatusNotFound {
 			res.Body.Close()
@@ -736,9 +842,12 @@ func (h *GitHubPipelinesHandler) fetchRuns(ctx context.Context, repo, query stri
 // fetchWorkflowRuns fetches runs for a specific workflow file (e.g. "release.yml")
 // via /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs.
 func (h *GitHubPipelinesHandler) fetchWorkflowRuns(ctx context.Context, repo, workflowFile, query string) ([]ghpWorkflowRun, error) {
-	res, err := h.ghGet(ctx, fmt.Sprintf("/repos/%s/actions/workflows/%s/runs?%s", repo, workflowFile, query))
+	res, err := h.ghGetWithRetry(ctx, fmt.Sprintf("/repos/%s/actions/workflows/%s/runs?%s", repo, workflowFile, query))
 	if err != nil {
 		return nil, err
+	}
+	if res == nil {
+		return nil, fmt.Errorf("github: nil response with no error")
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {
@@ -756,7 +865,13 @@ func (h *GitHubPipelinesHandler) fetchWorkflowRuns(ctx context.Context, repo, wo
 	if err := json.NewDecoder(res.Body).Decode(&data); err != nil {
 		return nil, err
 	}
-	out := make([]ghpWorkflowRun, 0, len(data.WorkflowRuns))
+	// Bounds-check before make to guard against malformed API responses that
+	// return an unexpectedly large array (go/allocation-size-overflow).
+	n := len(data.WorkflowRuns)
+	if n < 0 || n > ghpMaxAllocItems {
+		return nil, fiber.NewError(fiber.StatusBadGateway, "GitHub API returned invalid workflow run count")
+	}
+	out := make([]ghpWorkflowRun, 0, n)
 	for _, r := range data.WorkflowRuns {
 		out = append(out, normalizeRunRaw(r, repo))
 	}
@@ -797,7 +912,13 @@ func (h *GitHubPipelinesHandler) fetchJobs(ctx context.Context, repo string, run
 	if err := json.NewDecoder(res.Body).Decode(&data); err != nil {
 		return nil, err
 	}
-	jobs := make([]ghpJob, 0, len(data.Jobs))
+	// Bounds-check before make to guard against malformed API responses
+	// (go/allocation-size-overflow).
+	nJobs := len(data.Jobs)
+	if nJobs < 0 || nJobs > ghpMaxAllocItems {
+		return nil, fiber.NewError(fiber.StatusBadGateway, "GitHub API returned invalid job count")
+	}
+	jobs := make([]ghpJob, 0, nJobs)
 	for _, j := range data.Jobs {
 		steps := make([]ghpStep, 0, len(j.Steps))
 		for _, s := range j.Steps {

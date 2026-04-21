@@ -288,9 +288,10 @@ func (m *MultiClusterClient) GetClusterHealth(ctx context.Context, contextName s
 		}
 	}
 
-	// Only cache successful results — don't cache failures (timeout, context canceled)
-	// so the next request retries immediately instead of serving stale errors
-	if health.Reachable {
+	// Only cache successful results or non-transient configuration/auth errors.
+	// We don't cache transient failures (timeout, network) so the next
+	// request retries immediately. (#3158)
+	if health.Reachable || health.ErrorType == "auth" || health.ErrorType == "config" {
 		m.mu.Lock()
 		m.healthCache[contextName] = health
 		m.cacheTime[contextName] = time.Now()

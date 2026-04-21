@@ -2,12 +2,42 @@ import { expect, test, type Page } from '@playwright/test'
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import { setupAuth } from '../helpers/setup'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 type PerfMode = 'live-cold' | 'live-warm' | 'demo-cold' | 'demo-warm'
 type DataSource = 'cache' | 'stream' | 'network' | 'demo'
 type Status = 'ok' | 'timeout' | 'error'
+
+// Issue 9232: this spec used to measure TTFI, timeouts, and p95 per mode, write
+// them to ttfi-report.json, and return without asserting anything. A shared
+// `compare-ttfi.mjs` script existed but was only invoked from two of the three
+// CI workflows that run this spec (and even then one wrapped it in `|| true`),
+// so regressions to TTFI silently passed every time the spec ran standalone.
+// The block below wires the same budgets that `compare-ttfi.mjs` uses —
+// `baseline/ttfi-baseline.json` — directly into the test's `afterAll`, so a
+// per-card TTFI, p95, or timeout-count breach fails the Playwright run
+// regardless of which workflow invoked it.
+const TTFI_BASELINE_PATH = path.resolve(__dirname, 'baseline/ttfi-baseline.json')
+// Percent tolerance applied on top of the baseline budgets. Mirrors the
+// `CI_TOLERANCE_PCT` env var consumed by compare-ttfi.mjs so both the in-test
+// gate and the post-test workflow gate agree. Default 0 matches the script's
+// default; the perf-ttfi.yml workflow sets it to 15 to absorb CI-runner noise.
+const TTFI_DEFAULT_TOLERANCE_PCT = 0
+const TTFI_IN_TEST_TOLERANCE_PCT = Number(
+  process.env.CI_TOLERANCE_PCT || String(TTFI_DEFAULT_TOLERANCE_PCT)
+)
+const TTFI_TOLERANCE_FACTOR = 1 + TTFI_IN_TEST_TOLERANCE_PCT / 100
+
+interface TTFIModeBudget {
+  max_ttfi_ms: number
+  max_p95_ms: number
+  max_timeout_count: number
+}
+interface TTFIBaseline {
+  budgets: Partial<Record<PerfMode, TTFIModeBudget>>
+}
 
 interface ManifestItem {
   cardType: string
@@ -97,12 +127,6 @@ function getMockRESTData(url: string): Record<string, unknown> {
   const match = url.match(/\/api\/mcp\/([^/?]+)/)
   const endpoint = match?.[1] || ''
   return MOCK_DATA[endpoint] ? { ...MOCK_DATA[endpoint], source: 'mock' } : { items: [], source: 'mock' }
-}
-
-async function setupAuth(page: Page) {
-  await page.route('**/api/me', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockUser) })
-  )
 }
 
 async function setupLiveMocks(page: Page) {
@@ -232,23 +256,26 @@ async function setMode(page: Page, mode: PerfMode) {
 
   await page.addInitScript(
     ({ demo, warm, user }: { demo: boolean; warm: boolean; user: unknown }) => {
-      localStorage.setItem('token', demo ? 'demo-token' : 'test-token')
-      localStorage.setItem('kc-demo-mode', String(demo))
-      localStorage.setItem('demo-user-onboarded', 'true')
-      localStorage.setItem('kubestellar-console-tour-completed', 'true')
-      localStorage.setItem('kc-user-cache', JSON.stringify(user))
-      localStorage.setItem('kc-backend-status', JSON.stringify({ available: true, timestamp: Date.now() }))
-      localStorage.setItem('kc-sqlite-migrated', '2')
+      // Guard: about:blank has no origin and throws on localStorage access.
+      try {
+        localStorage.setItem('token', demo ? 'demo-token' : 'test-token')
+        localStorage.setItem('kc-demo-mode', String(demo))
+        localStorage.setItem('demo-user-onboarded', 'true')
+        localStorage.setItem('kubestellar-console-tour-completed', 'true')
+        localStorage.setItem('kc-user-cache', JSON.stringify(user))
+        localStorage.setItem('kc-backend-status', JSON.stringify({ available: true, timestamp: Date.now() }))
+        localStorage.setItem('kc-sqlite-migrated', '2')
 
-      if (!warm) {
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const key = localStorage.key(i)
-          if (!key) continue
-          if (key.includes('dashboard-cards') || key.startsWith('cache:') || key.includes('kubestellar-stack-cache')) {
-            localStorage.removeItem(key)
+        if (!warm) {
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i)
+            if (!key) continue
+            if (key.includes('dashboard-cards') || key.startsWith('cache:') || key.includes('kubestellar-stack-cache')) {
+              localStorage.removeItem(key)
+            }
           }
         }
-      }
+      } catch { /* about:blank has no origin */ }
     },
     { demo: isDemo, warm: isWarm, user: mockUser }
   )
@@ -367,7 +394,7 @@ function summarizeMode(cards: CardTTFIMetric[]): string {
 }
 
 async function runMode(page: Page, mode: PerfMode): Promise<CardTTFIMetric[]> {
-  await setupAuth(page)
+  await setupAuth(page, mockUser)
   if (mode.startsWith('live')) {
     await setupLiveMocks(page)
   }
@@ -456,4 +483,71 @@ test.afterAll(async () => {
 
   fs.writeFileSync(path.join(outDir, 'ttfi-report.json'), JSON.stringify(report, null, 2))
   fs.writeFileSync(path.join(outDir, 'ttfi-summary.md'), `${summaryLines.join('\n')}\n`)
+
+  // ── Issue 9232: in-test TTFI budget assertions ───────────────────────────
+  // Use try/catch for atomic read (avoids existsSync → readFileSync TOCTOU).
+  let baselineContent: string | null = null
+  try {
+    baselineContent = fs.readFileSync(TTFI_BASELINE_PATH, 'utf-8')
+  } catch {
+    // Baseline intentionally absent — skip the gate rather than fail. The spec
+    // is still useful as a reporting tool in that case; CI will regenerate
+    // the baseline on the next run.
+    console.log(`[TTFI] baseline missing at ${TTFI_BASELINE_PATH} — skipping in-test budget assertion`)
+    return
+  }
+
+  const baseline = JSON.parse(baselineContent) as TTFIBaseline
+  const failures: string[] = []
+
+  // Percentile index — compare-ttfi.mjs uses the 95th percentile for p95.
+  const P95_PERCENTILE = 0.95
+
+  for (const mode of ['live-cold', 'live-warm', 'demo-cold', 'demo-warm'] as const) {
+    const modeCards = byMode.get(mode) || []
+    if (modeCards.length === 0) continue // mode was skipped (e.g. live modes in CI)
+    const budget = baseline.budgets?.[mode]
+    if (!budget) {
+      failures.push(`${mode}: missing budget in ttfi-baseline.json`)
+      continue
+    }
+
+    const okCards = modeCards.filter((c) => c.status === 'ok')
+    const timeoutCards = modeCards.filter((c) => c.status === 'timeout')
+    const values = okCards.map((c) => c.ttfi_ms).sort((a, b) => a - b)
+    const p95 = values.length
+      ? values[Math.max(0, Math.ceil(values.length * P95_PERCENTILE) - 1)]
+      : -1
+
+    const effectiveP95 = Math.round(budget.max_p95_ms * TTFI_TOLERANCE_FACTOR)
+    const effectiveTtfi = Math.round(budget.max_ttfi_ms * TTFI_TOLERANCE_FACTOR)
+
+    if (timeoutCards.length > budget.max_timeout_count) {
+      failures.push(
+        `${mode}: timeout count ${timeoutCards.length} > budget ${budget.max_timeout_count}`
+      )
+    }
+    if (p95 > effectiveP95) {
+      failures.push(`${mode}: p95 ${p95}ms > budget ${effectiveP95}ms`)
+    }
+    for (const card of okCards) {
+      if (card.ttfi_ms > effectiveTtfi) {
+        failures.push(
+          `${mode}:${card.cardType} ttfi ${card.ttfi_ms}ms > max ${effectiveTtfi}ms`
+        )
+      }
+    }
+  }
+
+  // Cap the failure message length — a perf regression can produce hundreds
+  // of over-budget cards and the full list drowns out the actual signal.
+  const MAX_FAILURES_IN_MESSAGE = 20
+  const displayed = failures.slice(0, MAX_FAILURES_IN_MESSAGE)
+  const suffix = failures.length > MAX_FAILURES_IN_MESSAGE
+    ? `\n…and ${failures.length - MAX_FAILURES_IN_MESSAGE} more (see ttfi-report.json)`
+    : ''
+  expect(
+    failures.length,
+    `TTFI budget breached (${failures.length} failure(s)):\n${displayed.join('\n')}${suffix}`
+  ).toBe(0)
 })

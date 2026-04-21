@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import { setupAuthLocalStorage } from '../helpers/setup'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -73,7 +74,7 @@ function writeReport(report: I18nReport, outDir: string) {
       c.status === 'fail' ? 'FAIL' :
       c.status === 'warn' ? 'WARN' :
       c.status === 'info' ? 'INFO' : 'SKIP'
-    lines.push(`| ${c.category} | ${c.name} | ${c.severity} | ${statusIcon} | ${c.details.replace(/\|/g, '\\|')} |`)
+    lines.push(`| ${escapeMdCell(c.category)} | ${escapeMdCell(c.name)} | ${c.severity} | ${statusIcon} | ${escapeMdCell(c.details)} |`)
   }
 
   lines.push('')
@@ -92,6 +93,37 @@ function flattenKeys(obj: Record<string, unknown>, prefix = ''): string[] {
     }
   }
   return keys
+}
+
+/**
+ * Safely traverse a nested object using a dot-notation key path.
+ * Guards against prototype-pollution by refusing to descend into
+ * __proto__, constructor, or prototype segments.
+ */
+const UNSAFE_KEY_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+
+function safeGetByPath(obj: Record<string, unknown>, dotPath: string): unknown {
+  let val: unknown = obj
+  for (const segment of dotPath.split('.')) {
+    if (UNSAFE_KEY_SEGMENTS.has(segment)) return undefined
+    val = (val as Record<string, unknown>)?.[segment]
+  }
+  return val
+}
+
+/**
+ * Escape a string for safe inclusion in a Markdown table cell.
+ * Prevents markdown injection via pipe characters, backticks, or HTML tags.
+ * Backslashes are escaped first so that subsequent replacements cannot be
+ * reinterpreted as escape sequences by the Markdown renderer.
+ */
+function escapeMdCell(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|')
+    .replace(/`/g, '\\`')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 // ---------------------------------------------------------------------------
@@ -128,16 +160,6 @@ async function setupMockServer(page: Page) {
   })
 }
 
-async function setupAuth(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem('token', 'test-jwt-token')
-    localStorage.setItem('kc-demo-mode', 'false')
-    localStorage.setItem('kc-onboarding-complete', 'true')
-    localStorage.setItem('kc-tour-complete', 'true')
-    localStorage.setItem('kc-setup-complete', 'true')
-  })
-}
-
 // ---------------------------------------------------------------------------
 // Test
 // ---------------------------------------------------------------------------
@@ -162,7 +184,15 @@ test('i18n compliance — internationalization audit', async ({ page }) => {
   console.log('[i18n] Phase 1: Locale file validation')
 
   const localeDir = path.resolve(__dirname, '../../src/locales/en')
-  const localeFiles = ['common.json', 'cards.json', 'status.json', 'errors.json']
+  // Issue 9243: previously this list was hardcoded as
+  // ['common.json', 'cards.json', 'status.json', 'errors.json']. Any new
+  // namespace under src/locales/en/ (e.g., missions.json, ai.json) was
+  // silently ignored — missing-key validation, empty-value checks, and
+  // plural-form checks would not apply. Discover namespaces by scanning
+  // the directory so additions are automatically covered.
+  const localeFiles = fs.readdirSync(localeDir)
+    .filter(f => f.endsWith('.json'))
+    .sort()
 
   let totalKeys = 0
   let emptyValues = 0
@@ -197,11 +227,7 @@ test('i18n compliance — internationalization audit', async ({ page }) => {
 
     // Check for empty values
     for (const key of keys) {
-      const parts = key.split('.')
-      let val: unknown = data
-      for (const p of parts) {
-        val = (val as Record<string, unknown>)?.[p]
-      }
+      const val = safeGetByPath(data, key)
       if (val === '' || val === null || val === undefined) {
         emptyValues++
         if (emptyKeyExamples.length < 5) {
@@ -228,9 +254,7 @@ test('i18n compliance — internationalization audit', async ({ page }) => {
     const filePath = path.join(localeDir, `${ns}.json`)
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
     for (const key of keys) {
-      const parts = key.split('.')
-      let val: unknown = data
-      for (const p of parts) val = (val as Record<string, unknown>)?.[p]
+      const val = safeGetByPath(data, key)
       if (typeof val === 'string' && val.includes('{{')) {
         interpolationKeys.push(`${ns}:${key}`)
         // Check for malformed interpolation (missing closing braces)
@@ -277,9 +301,7 @@ test('i18n compliance — internationalization audit', async ({ page }) => {
     const filePath = path.join(localeDir, `${ns}.json`)
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
     for (const key of keys) {
-      const parts = key.split('.')
-      let val: unknown = data
-      for (const p of parts) val = (val as Record<string, unknown>)?.[p]
+      const val = safeGetByPath(data, key)
       if (typeof val === 'string' && val.includes('{{count}}')) {
         pluralKeys.push(`${ns}:${key}`)
         const baseKey = key.replace(/_one$|_other$|_zero$|_two$|_few$|_many$/, '')
@@ -364,7 +386,12 @@ test('i18n compliance — internationalization audit', async ({ page }) => {
     }
   })
 
-  await setupAuth(page)
+  await setupAuthLocalStorage(page, {
+    demoMode: false,
+    onboardingComplete: true,
+    tourComplete: true,
+    setupComplete: true,
+  })
   await setupMockServer(page)
   await page.goto('/', { waitUntil: 'domcontentloaded', timeout: IS_CI ? 60_000 : 30_000 })
   // Wait for page content to fully render

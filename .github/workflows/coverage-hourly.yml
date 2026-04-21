@@ -15,8 +15,11 @@ on:
   workflow_dispatch:
 
 concurrency:
+  # Only one coverage run at a time. When a burst of merges hits main, cancel
+  # the queued run in favour of the latest commit so orphaned runs don't pile
+  # up and inflate the weekly failure/cancellation count (see #9107).
   group: coverage-suite
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -39,10 +42,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -50,7 +53,8 @@ jobs:
 
       - name: Install dependencies
         working-directory: web
-        run: npm ci
+        # Retry once on transient npm registry failures (see #9107)
+        run: npm ci || npm ci
 
       - name: Run shard ${{ matrix.shard }}/${{ env.TOTAL_SHARDS }} with coverage
         id: test
@@ -97,7 +101,7 @@ jobs:
 
       - name: Upload failed test list
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: failed-tests-${{ matrix.shard }}
           path: web/failed-tests.txt
@@ -106,7 +110,7 @@ jobs:
 
       - name: Upload shard coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-shard-${{ matrix.shard }}
           path: web/coverage/coverage-final.json
@@ -131,10 +135,10 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -142,17 +146,18 @@ jobs:
 
       - name: Install dependencies
         working-directory: web
-        run: npm ci
+        # Retry once on transient npm registry failures (see #9107)
+        run: npm ci || npm ci
 
       - name: Download all shard coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: coverage-shard-*
           path: /tmp/shards
 
       - name: Download failed test artifacts
         if: always()
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: failed-tests-*
           path: /tmp/failed-tests
@@ -248,14 +253,14 @@ jobs:
 
       - name: Upload merged coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-merged-${{ github.run_number }}
           path: web/coverage/coverage-summary.json
           retention-days: 30
 
       - name: Update coverage badge gist (with regression guard)
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           GIST_ID: ${{ env.GIST_ID }}
           COVERAGE_PCT: ${{ steps.cov.outputs.pct }}
@@ -368,7 +373,7 @@ jobs:
 
       - name: Open issue for test failures
         if: needs.test-shard.result == 'failure'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           FAILED_TESTS: ${{ steps.failures.outputs.list }}
           FAILED_COUNT: ${{ steps.failures.outputs.count }}
