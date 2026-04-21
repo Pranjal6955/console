@@ -41,6 +41,7 @@ import type {
   K8sServiceAccountInfo,
 } from '../useMCP'
 import type { Workload } from '../useWorkloads'
+import type { CiliumStatus } from '../../types/cilium'
 
 // ---------------------------------------------------------------------------
 // Local type stubs used only by demo data — avoid circular import with
@@ -480,7 +481,7 @@ export const getDemoK8sServiceAccountsRbac = (): K8sServiceAccountInfo[] => [
 // Cilium demo data
 // ============================================================================
 
-export const getDemoCiliumStatus = () => ({
+export const getDemoCiliumStatus = (): CiliumStatus => ({
   status: 'Healthy',
   nodes: [
     { name: 'node-1', status: 'Healthy', version: '1.14.4' },

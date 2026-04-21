@@ -1,27 +1,8 @@
 import { useCache, type RefreshCategory } from '../lib/cache'
 import { fetchCiliumStatus } from './useCachedData/agentFetchers'
 import { getDemoCiliumStatus } from './useCachedData/demoData'
+import type { CiliumStatus, CiliumNode } from '../types/cilium'
 
-export interface CiliumNode {
-    name: string
-    status: 'Healthy' | 'Degraded' | 'Unhealthy'
-    version: string
-}
-
-export interface CiliumStatus {
-    status: 'Healthy' | 'Degraded' | 'Unhealthy'
-    nodes: CiliumNode[]
-    networkPolicies: number
-    endpoints: number
-    hubble: {
-        enabled: boolean
-        flowsPerSecond: number
-        metrics: {
-            forwarded: number
-            dropped: number
-        }
-    }
-}
 
 const CACHE_KEY_CILIUM = 'cilium_status'
 
@@ -37,7 +18,7 @@ export interface CachedHookResult<T> {
 }
 
 export function useCachedCiliumStatus(): CachedHookResult<CiliumStatus> {
-    const result = useCache({
+    const result = useCache<CiliumStatus>({
         key: CACHE_KEY_CILIUM,
         category: 'default' as RefreshCategory,
         initialData: {
@@ -52,7 +33,11 @@ export function useCachedCiliumStatus(): CachedHookResult<CiliumStatus> {
             }
         } as CiliumStatus,
         demoData: getDemoCiliumStatus(),
-        fetcher: fetchCiliumStatus,
+        fetcher: async () => {
+            const data = await fetchCiliumStatus()
+            if (!data) throw new Error('Cilium status unavailable')
+            return data as CiliumStatus
+        },
     })
 
     // Rule 2: Never use demo data during loading.
