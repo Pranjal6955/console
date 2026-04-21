@@ -224,7 +224,9 @@ func TestGetGPUNodeHealth(t *testing.T) {
 	event.EventTime = metav1.MicroTime{Time: oneHourAgo.Add(-10 * time.Minute)}
 	fakeClient = fake.NewSimpleClientset(node, gfdPod, stuckPod, event)
 	m.InjectClient("test-cluster-old-events", fakeClient)
-	health, _ = m.GetGPUNodeHealth(ctx, "test-cluster-old-events")
+	health, err = m.GetGPUNodeHealth(ctx, "test-cluster-old-events")
+	require.NoError(t, err)
+	require.Len(t, health, 1)
 	for _, c := range health[0].Checks {
 		if c.Name == "gpu_events" {
 			assert.True(t, c.Passed, "Old events should be ignored")
@@ -297,7 +299,9 @@ func TestGPUHealthCronJobReconciliation(t *testing.T) {
 	assert.Equal(t, "node-1", status.LastResults[0].NodeName)
 
 	// Verify CronJob was actually updated in the fake client
-	updatedCJ, _ := fakeClient.BatchV1().CronJobs(ns).Get(ctx, gpuHealthCronJobName, metav1.GetOptions{})
+	updatedCJ, err := fakeClient.BatchV1().CronJobs(ns).Get(ctx, gpuHealthCronJobName, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, updatedCJ)
 	assert.Equal(t, "2", updatedCJ.Labels["kubestellar-console/script-version"])
 }
 
