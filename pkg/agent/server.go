@@ -34,8 +34,8 @@ const (
 	agentFileMode = 0600
 
 	// Backend port resolution constants (see resolveBackendPort in server_http.go).
-	// These are duplicated from cmd/console/watchdog.go because pkg/agent cannot
-	// import the main package. Keep them in sync with watchdog.go.
+	// These are duplicated from cmd/watcher/watcher.go because pkg/agent cannot
+	// import the main package. Keep them in sync with watcher.go.
 	backendPortWatchdogMode  = 8081               // watchdog (8080) proxies -> backend (8081)
 	backendPortLegacyDefault = 8080               // no-watchdog deployments: backend binds 8080 directly
 	watchdogPidFilePath      = "/tmp/.kc-watchdog.pid"
@@ -410,6 +410,9 @@ func (s *Server) Start() error {
 	// available for future MCS-export UI work.
 	mux.HandleFunc("/serviceexports", s.handleServiceExportsHTTP)
 
+	// Cilium status — aggregated eBPF networking health across all clusters (#9400)
+	mux.HandleFunc("/cilium-status", s.handleCiliumStatus)
+
 	// Helm mutating operations moved to kc-agent (#7993 Phase 3a). These shell
 	// `helm rollback` / `helm uninstall` / `helm upgrade` under the user's
 	// kubeconfig instead of the backend pod SA. Backend handlers are still
@@ -442,6 +445,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/federation/clusters", s.handleFederationClusters)
 	mux.HandleFunc("/federation/groups", s.handleFederationGroups)
 	mux.HandleFunc("/federation/pending-joins", s.handleFederationPendingJoins)
+	// Phase 2: imperative action endpoint. Providers that implement
+	// ActionProvider expose management operations (approve CSR, accept/detach
+	// cluster, add taints) via POST. Same bearer-token identity contract as
+	// the read handlers above.
+	mux.HandleFunc("/federation/action", s.handleFederationAction)
 
 	// GitOps drift detection + kubectl sync moved to kc-agent (#7993 Phase 3b).
 	// These shell `kubectl diff` / `kubectl apply` under the user's kubeconfig.
