@@ -575,6 +575,14 @@ func (s *Server) handleChatMessageStreaming(conn *websocket.Conn, msg protocol.M
 		History:   history,
 	}
 
+	// Thread cluster context so tool-capable agents scope kubectl to the
+	// correct cluster, preventing multi-cluster context drift (#9485).
+	if req.ClusterContext != "" {
+		chatReq.Context = map[string]string{
+			"clusterContext": req.ClusterContext,
+		}
+	}
+
 	// Send initial progress message so user sees feedback immediately
 	safeWrite(ctx, protocol.Message{
 		ID:   msg.ID,
@@ -960,6 +968,13 @@ func (s *Server) handleChatMessage(msg protocol.Message, forceAgent string) prot
 		History:   history,
 	}
 
+	// Thread cluster context for non-streaming path (#9485).
+	if req.ClusterContext != "" {
+		chatReq.Context = map[string]string{
+			"clusterContext": req.ClusterContext,
+		}
+	}
+
 	// #6678 — Previously this used context.Background() with no deadline,
 	// which meant a hung AI provider would block the WebSocket goroutine
 	// forever (the caller was a synchronous path from the read loop).
@@ -1182,10 +1197,20 @@ func (s *Server) handleMixedModeChat(ctx context.Context, conn *websocket.Conn, 
 
 User request: %s`, req.Prompt)
 
+	// Thread cluster context to both thinking and execution agents so
+	// kubectl commands are scoped to the user's current cluster (#9485).
+	var chatCtx map[string]string
+	if req.ClusterContext != "" {
+		chatCtx = map[string]string{
+			"clusterContext": req.ClusterContext,
+		}
+	}
+
 	thinkingReq := ChatRequest{
 		Prompt:    thinkingPrompt,
 		SessionID: sessionID,
 		History:   history,
+		Context:   chatCtx,
 	}
 
 	thinkingResp, err := thinkingProvider.Chat(ctx, &thinkingReq)
@@ -1250,6 +1275,7 @@ User request: %s`, req.Prompt)
 	execReq := ChatRequest{
 		Prompt:    execPrompt,
 		SessionID: sessionID,
+		Context:   chatCtx,
 	}
 
 	var execContent string
@@ -1538,7 +1564,14 @@ func (s *Server) sessionTokenQuotaMessage() string {
 		s.sessionTokenQuota, sessionTokenQuotaEnvVar)
 }
 
-// addTokenUsage accumulates token usage from a chat response
+// tokenUsageFlushInterval is how often accumulated in-memory token usage
+// is flushed to disk. Batching prevents high-frequency disk I/O when many
+// AI responses arrive in quick succession (#9483).
+const tokenUsageFlushInterval = 5 * time.Second
+
+// addTokenUsage accumulates token usage from a chat response.
+// Instead of writing to disk on every call, it schedules a debounced
+// flush that fires after tokenUsageFlushInterval of inactivity (#9483).
 func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	if usage == nil {
 		return
@@ -1561,8 +1594,18 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	s.todayTokensOut += int64(usage.OutputTokens)
 	s.tokenMux.Unlock()
 
-	// Persist to disk (synchronous; avoids flaky tests under -race)
-	s.saveTokenUsage()
+	// Schedule a debounced flush: reset the timer if one is already pending,
+	// otherwise create a new one. This coalesces rapid-fire token updates into
+	// a single disk write (#9483).
+	if s.tokenFlushTimer != nil {
+		s.tokenFlushTimer.Reset(tokenUsageFlushInterval)
+	} else {
+		s.tokenFlushTimer = time.AfterFunc(tokenUsageFlushInterval, func() {
+			s.saveTokenUsage()
+		})
+	}
+
+	s.tokenMux.Unlock()
 }
 
 // tokenUsageData is persisted to disk
@@ -1712,10 +1755,14 @@ type KeyStatus struct {
 	BaseURLSource string `json:"baseURLSource,omitempty"`
 }
 
-// KeysStatusResponse is the response for GET /settings/keys
+// KeysStatusResponse is the response for GET /settings/keys.
+// RegisteredProviders is populated from the live agent registry so the
+// frontend settings UI can display only providers that are actually
+// registered in the backend, avoiding stale hardcoded lists (#9488).
 type KeysStatusResponse struct {
-	Keys       []KeyStatus `json:"keys"`
-	ConfigPath string      `json:"configPath"`
+	Keys                []KeyStatus    `json:"keys"`
+	ConfigPath          string         `json:"configPath"`
+	RegisteredProviders []ProviderInfo `json:"registeredProviders"`
 }
 
 // SetKeyRequest is the request body for POST /settings/keys.
