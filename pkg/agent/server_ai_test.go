@@ -35,10 +35,6 @@ func TestServer_TokenUsage(t *testing.T) {
 	// 1. Add usage
 	s.addTokenUsage(usage)
 
-	// Wait for async save (short sleep is ugly but saveTokenUsage is a goroutine)
-	// In a real test we might want to wait for the goroutine
-	time.Sleep(100 * time.Millisecond)
-
 	s.tokenMux.RLock()
 	if s.sessionTokensIn != 100 || s.sessionTokensOut != 50 {
 		t.Errorf("Expected 100/50 session tokens, got %d/%d", s.sessionTokensIn, s.sessionTokensOut)
@@ -50,7 +46,6 @@ func TestServer_TokenUsage(t *testing.T) {
 
 	// 2. Add more usage
 	s.addTokenUsage(usage)
-	time.Sleep(100 * time.Millisecond)
 
 	s.tokenMux.RLock()
 	if s.sessionTokensIn != 200 || s.sessionTokensOut != 100 {
@@ -60,10 +55,7 @@ func TestServer_TokenUsage(t *testing.T) {
 
 	// 3. Verify persistence
 	path := getTokenUsagePath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("Failed to read usage file: %v", err)
-	}
+	data := waitForFile(t, path, 2*time.Second)
 
 	var saved tokenUsageData
 	if err := json.Unmarshal(data, &saved); err != nil {
@@ -96,6 +88,26 @@ func TestServer_TokenUsage(t *testing.T) {
 		t.Errorf("Session tokens should accumulate across days, got %d/%d", s.sessionTokensIn, s.sessionTokensOut)
 	}
 	s.tokenMux.RUnlock()
+}
+
+// helper: wait until the async token-usage writer has created the file
+func waitForFile(t *testing.T, path string, timeout time.Duration) []byte {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		b, err := os.ReadFile(path)
+		if err == nil {
+			return b
+		}
+		if !os.IsNotExist(err) && err != nil {
+			t.Fatalf("unexpected error reading %s: %v", path, err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for file to be written: %s", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // TestServer_SessionTokenQuota verifies that the per-session aggregate
