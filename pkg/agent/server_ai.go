@@ -213,8 +213,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 						writeMu.Lock()
 						conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 						_ = conn.WriteJSON(protocol.Message{
-							ID:   msg.ID,
-							Type: protocol.TypeError,
+							ID:      msg.ID,
+							Type:    protocol.TypeError,
 							Payload: protocol.ErrorPayload{Code: "panic", Message: "Internal server error"},
 						})
 						conn.SetWriteDeadline(time.Time{})
@@ -1545,7 +1545,6 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	}
 
 	s.tokenMux.Lock()
-	defer s.tokenMux.Unlock()
 
 	// Check if day changed - reset daily counters
 	today := time.Now().Format("2006-01-02")
@@ -1560,9 +1559,10 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	s.sessionTokensOut += int64(usage.OutputTokens)
 	s.todayTokensIn += int64(usage.InputTokens)
 	s.todayTokensOut += int64(usage.OutputTokens)
+	s.tokenMux.Unlock()
 
-	// Persist to disk (non-blocking)
-	go s.saveTokenUsage()
+	// Persist to disk (synchronous; avoids flaky tests under -race)
+	s.saveTokenUsage()
 }
 
 // tokenUsageData is persisted to disk
