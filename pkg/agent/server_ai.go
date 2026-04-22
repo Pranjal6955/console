@@ -1578,6 +1578,7 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	}
 
 	s.tokenMux.Lock()
+	defer s.tokenMux.Unlock()
 
 	// Check if day changed - reset daily counters
 	today := time.Now().Format("2006-01-02")
@@ -1592,7 +1593,6 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	s.sessionTokensOut += int64(usage.OutputTokens)
 	s.todayTokensIn += int64(usage.InputTokens)
 	s.todayTokensOut += int64(usage.OutputTokens)
-	s.tokenMux.Unlock()
 
 	// Schedule a debounced flush: reset the timer if one is already pending,
 	// otherwise create a new one. This coalesces rapid-fire token updates into
@@ -1604,8 +1604,6 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 			s.saveTokenUsage()
 		})
 	}
-
-	s.tokenMux.Unlock()
 }
 
 // tokenUsageData is persisted to disk

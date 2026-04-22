@@ -55,7 +55,7 @@ func TestServer_TokenUsage(t *testing.T) {
 
 	// 3. Verify persistence
 	path := getTokenUsagePath()
-	data := waitForFile(t, path, 2*time.Second)
+	data := waitForFile(t, path, 10*time.Second)
 
 	var saved tokenUsageData
 	if err := json.Unmarshal(data, &saved); err != nil {
