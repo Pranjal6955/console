@@ -58,6 +58,8 @@
     "openDocs": "Open Thanos Docs"
   },
   "ciliumStatus": {
+    "title": "Cilium",
+    "subtitle": "eBPF Data Plane",
     "healthy": "Healthy",
     "degraded": "Degraded",
     "unhealthy": "Unhealthy",
@@ -68,6 +70,11 @@
     "forwarded": "Forwarded",
     "dropped": "Dropped",
     "perSecond": "/s",
+    "hubbleEnabled": "Hubble Enabled",
+    "ebpf": "eBPF",
+    "name": "Name",
+    "status": "Status",
+    "version": "Version",
     "openDocs": "Open Cilium Docs"
   },
   "securityIssues": {

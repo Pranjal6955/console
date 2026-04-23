@@ -1,6 +1,7 @@
 import { useCache, type RefreshCategory } from '../lib/cache'
 import { fetchCiliumStatus } from './useCachedData/agentFetchers'
 import { getDemoCiliumStatus } from './useCachedData/demoData'
+import { useDemoMode } from './useDemoMode'
 import type { CiliumStatus } from '../types/cilium'
 
 
@@ -18,6 +19,7 @@ export interface CachedHookResult<T> {
 }
 
 export function useCachedCiliumStatus(): CachedHookResult<CiliumStatus> {
+    const { isDemoMode } = useDemoMode()
     const result = useCache<CiliumStatus>({
         key: CACHE_KEY_CILIUM,
         category: 'default' as RefreshCategory,
@@ -42,16 +44,16 @@ export function useCachedCiliumStatus(): CachedHookResult<CiliumStatus> {
 
     // Rule 2: Never use demo data during loading.
     // The hook's isDemoFallback must be false while isLoading is true.
-    const isDemoData = result.isDemoFallback && !result.isLoading
+    const isDemoData = (isDemoMode || result.isDemoFallback) && !result.isLoading
 
     return {
-        data: result.data,
-        isLoading: result.isLoading,
-        isRefreshing: result.isRefreshing,
+        data: isDemoMode ? getDemoCiliumStatus() : result.data,
+        isLoading: isDemoMode ? false : result.isLoading,
+        isRefreshing: isDemoMode ? false : result.isRefreshing,
         isDemoData,
-        isFailed: result.isFailed,
-        consecutiveFailures: result.consecutiveFailures,
-        lastRefresh: result.lastRefresh,
+        isFailed: isDemoMode ? false : result.isFailed,
+        consecutiveFailures: isDemoMode ? 0 : result.consecutiveFailures,
+        lastRefresh: isDemoMode ? Date.now() : result.lastRefresh,
         refetch: result.refetch,
     }
 }
