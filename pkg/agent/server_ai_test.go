@@ -35,6 +35,9 @@ func TestServer_TokenUsage(t *testing.T) {
 	// 1. Add usage
 	s.addTokenUsage(usage)
 
+	// Wait for async save (short sleep is ugly but saveTokenUsage is a goroutine)
+	// In a real test we might want to wait for the goroutine
+	time.Sleep(100 * time.Millisecond)
 	s.tokenMux.RLock()
 	if s.sessionTokensIn != 100 || s.sessionTokensOut != 50 {
 		t.Errorf("Expected 100/50 session tokens, got %d/%d", s.sessionTokensIn, s.sessionTokensOut)
@@ -53,10 +56,7 @@ func TestServer_TokenUsage(t *testing.T) {
 	}
 	s.tokenMux.RUnlock()
 
-	// 3. Verify persistence — force a synchronous flush because
-	// addTokenUsage uses a debounced 5 s timer (#9483) that will not
-	// have fired yet.
-	s.saveTokenUsage()
+	// 3. Verify persistence
 
 	path := getTokenUsagePath()
 	data, err := os.ReadFile(path)

@@ -1548,9 +1548,9 @@ func (s *Server) isSessionQuotaExceeded() bool {
 	if s.sessionTokenQuota <= 0 {
 		return false // unlimited
 	}
-	s.tokenMux.Lock()
+	s.tokenMux.RLock()
 	total := s.sessionTokensIn + s.sessionTokensOut
-	s.tokenMux.Unlock()
+	s.tokenMux.RUnlock()
 	return total >= s.sessionTokenQuota
 }
 
@@ -1597,7 +1597,6 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	// otherwise create a new one. This coalesces rapid-fire token updates into
 	// a single disk write (#9483).
 	if s.tokenFlushTimer != nil {
-		s.tokenFlushTimer.Stop()
 		s.tokenFlushTimer.Reset(tokenUsageFlushInterval)
 	} else {
 		s.tokenFlushTimer = time.AfterFunc(tokenUsageFlushInterval, func() {
