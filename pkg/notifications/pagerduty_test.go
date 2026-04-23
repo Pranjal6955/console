@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -50,21 +49,22 @@ func TestPagerDutyNotifier_Send(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var captured pagerdutyEvent
-			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				body, err := io.ReadAll(r.Body)
+			notifier := NewPagerDutyNotifier("test-key")
+			notifier.HTTPClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				require.Equal(t, "POST", req.Method)
+				require.Equal(t, "https://events.pagerduty.com/v2/enqueue", req.URL.String())
+
+				body, err := io.ReadAll(req.Body)
 				require.NoError(t, err)
 				require.NoError(t, json.Unmarshal(body, &captured))
-				w.WriteHeader(http.StatusAccepted)
-			}))
-			defer ts.Close()
 
-			notifier := NewPagerDutyNotifier("test-key")
-			notifier.HTTPClient = ts.Client()
-			// We can't change pagerdutyEventsURL because it's a const.
-			// But we can test the mapping and payload builder.
+				return &http.Response{
+					StatusCode: http.StatusAccepted,
+					Body:       io.NopCloser(bytes.NewBufferString(`{"status":"success","message":"Event processed","dedup_key":"abc"}`)),
+				}, nil
+			})
 
-			// For the sake of this test, let's use a helper that sends to a URL
-			err := notifier.sendEventToURL(ts.URL, tc.alert)
+			err := notifier.Send(tc.alert)
 			require.NoError(t, err)
 
 			require.Equal(t, "test-key", captured.RoutingKey)
@@ -78,44 +78,33 @@ func TestPagerDutyNotifier_Send(t *testing.T) {
 	}
 }
 
-// Helper to support testing const URL
-func (p *PagerDutyNotifier) sendEventToURL(url string, alert Alert) error {
-	dedupKey := alert.RuleID + "::" + alert.Cluster
-	if alert.RuleID == "" || alert.Cluster == "" {
-		dedupKey = alert.ID + "::" + alert.RuleID + "::" + alert.Cluster
-	}
-	if alert.ID == "" && alert.RuleID == "" && alert.Cluster == "" {
-		dedupKey = fallbackDedupKey(alert)
-	}
+func TestPagerDuty_Send_UsesFallbackWhenAllEmpty(t *testing.T) {
+	// (#8389)
+	var captured pagerdutyEvent
+	notifier := NewPagerDutyNotifier("test-key")
+	notifier.HTTPClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(req.Body)
+		json.Unmarshal(body, &captured)
+		return &http.Response{
+			StatusCode: http.StatusAccepted,
+			Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
+		}, nil
+	})
 
-	event := pagerdutyEvent{
-		RoutingKey: p.RoutingKey,
-		DedupKey:   dedupKey,
-	}
+	// All identity fields empty
+	alert := Alert{Message: "critical error", FiredAt: time.Now()}
+	err := notifier.Send(alert)
+	require.NoError(t, err)
 
-	if alert.Status == "resolved" {
-		event.EventAction = "resolve"
-	} else {
-		event.EventAction = "trigger"
-		event.Payload = &pagerdutyPayload{
-			Summary:   "[" + string(alert.Severity) + "] " + alert.RuleName + " — " + alert.Message,
-			Severity:  p.mapSeverity(alert.Severity),
-			Source:    alert.Cluster,
-			Component: alert.Resource,
-			Group:     alert.Namespace,
-			Class:     alert.ResourceKind,
-			Timestamp: alert.FiredAt.Format(time.RFC3339),
-		}
-	}
+	require.NotEmpty(t, captured.DedupKey)
+	require.Contains(t, captured.DedupKey, "fallback-")
+}
 
-	payload, _ := json.Marshal(event)
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(payload))
-	resp, err := p.HTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
+func TestPagerDutyNotifier_EmptyRoutingKey(t *testing.T) {
+	notifier := NewPagerDutyNotifier("")
+	err := notifier.Send(Alert{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "routing key not configured")
 }
 
 func TestPagerDutyNotifier_Helpers(t *testing.T) {

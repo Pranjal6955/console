@@ -213,8 +213,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 						writeMu.Lock()
 						conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 						_ = conn.WriteJSON(protocol.Message{
-							ID:      msg.ID,
-							Type:    protocol.TypeError,
+							ID:   msg.ID,
+							Type: protocol.TypeError,
 							Payload: protocol.ErrorPayload{Code: "panic", Message: "Internal server error"},
 						})
 						conn.SetWriteDeadline(time.Time{})
@@ -1548,9 +1548,9 @@ func (s *Server) isSessionQuotaExceeded() bool {
 	if s.sessionTokenQuota <= 0 {
 		return false // unlimited
 	}
-	s.tokenMux.RLock()
+	s.tokenMux.Lock()
 	total := s.sessionTokensIn + s.sessionTokensOut
-	s.tokenMux.RUnlock()
+	s.tokenMux.Unlock()
 	return total >= s.sessionTokenQuota
 }
 
@@ -1578,7 +1578,6 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	}
 
 	s.tokenMux.Lock()
-	defer s.tokenMux.Unlock()
 
 	// Check if day changed - reset daily counters
 	today := time.Now().Format("2006-01-02")
@@ -1598,12 +1597,15 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	// otherwise create a new one. This coalesces rapid-fire token updates into
 	// a single disk write (#9483).
 	if s.tokenFlushTimer != nil {
+		s.tokenFlushTimer.Stop()
 		s.tokenFlushTimer.Reset(tokenUsageFlushInterval)
 	} else {
 		s.tokenFlushTimer = time.AfterFunc(tokenUsageFlushInterval, func() {
 			s.saveTokenUsage()
 		})
 	}
+
+	s.tokenMux.Unlock()
 }
 
 // tokenUsageData is persisted to disk

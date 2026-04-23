@@ -72,6 +72,29 @@ func TestEmailNotifier_Helpers(t *testing.T) {
 	require.Equal(t, "", e.getSeverityClass("unknown"))
 }
 
+func TestEmailNotifier_ValidationErrors(t *testing.T) {
+	t.Run("empty host", func(t *testing.T) {
+		e := NewEmailNotifier("", 25, "u", "p", "f", []string{"t"})
+		err := e.Send(Alert{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "SMTP host not configured")
+	})
+
+	t.Run("no from address", func(t *testing.T) {
+		e := NewEmailNotifier("host", 25, "u", "p", "", []string{"t"})
+		err := e.Send(Alert{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "from address not configured")
+	})
+
+	t.Run("no recipients", func(t *testing.T) {
+		e := NewEmailNotifier("host", 25, "u", "p", "f", nil)
+		err := e.Send(Alert{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no recipients configured")
+	})
+}
+
 func TestSanitizeHeaderValue(t *testing.T) {
 	require.Equal(t, "safe value", sanitizeHeaderValue("safe value"))
 	require.Equal(t, "unsafevalue", sanitizeHeaderValue("unsafe\nvalue"))

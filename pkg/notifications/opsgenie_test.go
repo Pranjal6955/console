@@ -1,6 +1,10 @@
 package notifications
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +52,28 @@ func TestOpsGenie_FallbackDedupKey(t *testing.T) {
 	key := fallbackDedupKey(a)
 	require.NotEmpty(t, key)
 	require.True(t, strings.HasPrefix(key, "fallback-"))
+}
+
+func TestOpsGenie_Send_UsesFallbackAliasWhenAllEmpty(t *testing.T) {
+	// (#8390)
+	var captured opsgenieAlert
+	o := NewOpsGenieNotifier("test-key")
+	o.HTTPClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(req.Body)
+		json.Unmarshal(body, &captured)
+		return &http.Response{
+			StatusCode: http.StatusAccepted,
+			Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
+		}, nil
+	})
+
+	// All identity fields empty
+	alert := Alert{Message: "critical error", FiredAt: time.Now()}
+	err := o.Send(alert)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, captured.Alias)
+	require.Contains(t, captured.Alias, "fallback-")
 }
 
 func TestOpsGenie_AliasEscaping(t *testing.T) {

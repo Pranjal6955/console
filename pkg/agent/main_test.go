@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -24,8 +23,6 @@ import (
 const hardTestTimeout = 5 * time.Minute
 
 func TestMain(m *testing.M) {
-	var killOnce sync.Once
-
 	// Kill the entire process group (not just this process) so any
 	// subprocess trees (kubectl, kc-agent, Python) are also reaped.
 	// On Unix, setting the process group to our PID lets us kill -PGID.
@@ -34,12 +31,8 @@ func TestMain(m *testing.M) {
 		select {
 		case <-time.After(hardTestTimeout):
 			fmt.Fprintf(os.Stderr, "\n[TestMain] HARD TIMEOUT: agent tests exceeded %s — killing process group to prevent zombie leak\n", hardTestTimeout)
-			killOnce.Do(func() {
-				// Try graceful first, then escalate.
-				_ = syscall.Kill(-syscall.Getpid(), syscall.SIGTERM)
-				time.Sleep(2 * time.Second)
-				_ = syscall.Kill(-syscall.Getpid(), syscall.SIGKILL)
-			})
+			// Kill our process group
+			syscall.Kill(-syscall.Getpid(), syscall.SIGKILL)
 		case <-done:
 			// Tests finished normally
 		}
@@ -48,19 +41,10 @@ func TestMain(m *testing.M) {
 	// Also handle SIGINT/SIGTERM so Ctrl+C kills subprocesses too
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sig)
 	go func() {
-		select {
-		case <-sig:
-			fmt.Fprintf(os.Stderr, "\n[TestMain] Signal received — terminating process group\n")
-			killOnce.Do(func() {
-				_ = syscall.Kill(-syscall.Getpid(), syscall.SIGTERM)
-				time.Sleep(2 * time.Second)
-				_ = syscall.Kill(-syscall.Getpid(), syscall.SIGKILL)
-			})
-		case <-done:
-			return
-		}
+		<-sig
+		fmt.Fprintf(os.Stderr, "\n[TestMain] Signal received — killing process group\n")
+		syscall.Kill(-syscall.Getpid(), syscall.SIGKILL)
 	}()
 
 	code := m.Run()

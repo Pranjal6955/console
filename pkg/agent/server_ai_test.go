@@ -53,9 +53,16 @@ func TestServer_TokenUsage(t *testing.T) {
 	}
 	s.tokenMux.RUnlock()
 
-	// 3. Verify persistence
+	// 3. Verify persistence — force a synchronous flush because
+	// addTokenUsage uses a debounced 5 s timer (#9483) that will not
+	// have fired yet.
+	s.saveTokenUsage()
+
 	path := getTokenUsagePath()
-	data := waitForFile(t, path, 10*time.Second)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Failed to read usage file: %v", err)
+	}
 
 	var saved tokenUsageData
 	if err := json.Unmarshal(data, &saved); err != nil {
@@ -88,26 +95,6 @@ func TestServer_TokenUsage(t *testing.T) {
 		t.Errorf("Session tokens should accumulate across days, got %d/%d", s.sessionTokensIn, s.sessionTokensOut)
 	}
 	s.tokenMux.RUnlock()
-}
-
-// helper: wait until the async token-usage writer has created the file
-func waitForFile(t *testing.T, path string, timeout time.Duration) []byte {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	for {
-		b, err := os.ReadFile(path)
-		if err == nil {
-			return b
-		}
-		if !os.IsNotExist(err) && err != nil {
-			t.Fatalf("unexpected error reading %s: %v", path, err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for file to be written: %s", path)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 // TestServer_SessionTokenQuota verifies that the per-session aggregate

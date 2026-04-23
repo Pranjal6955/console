@@ -81,9 +81,24 @@ func TestWebhookNotifier_HostAllowlist(t *testing.T) {
 	require.Contains(t, err.Error(), "not in KC_WEBHOOK_ALLOWED_HOSTS allowlist")
 }
 
+func TestWebhookNotifier_NonSuccessStatus(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	n, _ := NewWebhookNotifier(ts.URL)
+	err := n.Send(Alert{FiredAt: time.Now()})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "webhook endpoint returned status 500")
+}
+
 func TestIsLoopbackHost(t *testing.T) {
 	require.True(t, isLoopbackHost("localhost"))
 	require.True(t, isLoopbackHost("127.0.0.1"))
 	require.True(t, isLoopbackHost("::1"))
 	require.False(t, isLoopbackHost("example.com"))
+	require.False(t, isLoopbackHost("10.0.0.1"))
+	require.False(t, isLoopbackHost("192.168.1.1"))
+	require.False(t, isLoopbackHost("kubernetes.default.svc"))
 }

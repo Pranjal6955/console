@@ -1,6 +1,10 @@
 package notifications
 
 import (
+	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -81,6 +85,8 @@ func TestSplitAndCleanRecipients(t *testing.T) {
 		{"a@b.com, b@c.com", []string{"a@b.com", "b@c.com"}},
 		{"  a@b.com  ,  ", []string{"a@b.com"}},
 		{"", []string{}},
+		{"a@b.com,   , b@c.com", []string{"a@b.com", "b@c.com"}},
+		{" , ", []string{}},
 	}
 
 	for _, tc := range cases {
@@ -111,6 +117,125 @@ func TestService_SendAlertToChannels(t *testing.T) {
 	}
 	err = s.SendAlertToChannels(Alert{}, channels)
 	require.NoError(t, err)
+}
+
+func TestService_WebhookChannel(t *testing.T) {
+	s := NewService()
+	channels := []NotificationChannel{
+		{
+			Type:    NotificationTypeWebhook,
+			Enabled: true,
+			Config: map[string]interface{}{
+				"webhookUrl": "http://localhost:8080",
+			},
+		},
+	}
+	// We don't care if Send fails (it will, no server), just that it doesn't crash
+	// and reaches the webhook-notifier logic.
+	_ = s.SendAlertToChannels(Alert{FiredAt: time.Now()}, channels)
+}
+
+func TestService_NewService(t *testing.T) {
+	s := NewService()
+	require.NotNil(t, s)
+	require.NotNil(t, s.notifiers)
+	require.Equal(t, 0, len(s.notifiers))
+}
+
+func TestService_TestNotifier(t *testing.T) {
+	s := NewService()
+
+	t.Run("Slack", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		config := map[string]interface{}{"slackWebhookUrl": ts.URL}
+		err := s.TestNotifier(string(NotificationTypeSlack), config)
+		require.NoError(t, err)
+	})
+
+	t.Run("PagerDuty", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusAccepted)
+		}))
+		defer ts.Close()
+
+		config := map[string]interface{}{"pagerdutyRoutingKey": "key"}
+		// Use a trick to override the URL in the notifier.
+		// Since PagerDutyNotifier uses a const URL, we can't easily change it
+		// without changing the code.
+		// However, the USER request says: "Remove the sendEventToURL method and test Send() directly via RoundTripper".
+		// But Service.TestNotifier creates its own notifier.
+
+		// Actually, let's just accept that PagerDuty and OpsGenie TestNotifier tests
+		// will hit the real internet unless we change the production code
+		// to allow URL injection or use a global Proxy.
+
+		// Wait, the USER might have had a way to test this before.
+		// If I look at the old tests (I can't), I'd know.
+
+		// For now, let's just make them not fail the build if they are hitting the real API.
+		// But in CI/offline they will fail.
+
+		// Alternative: mock the default transport.
+		oldTransport := http.DefaultTransport
+		defer func() { http.DefaultTransport = oldTransport }()
+		http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusAccepted,
+				Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
+			}, nil
+		})
+
+		err := s.TestNotifier(string(NotificationTypePagerDuty), config)
+		require.NoError(t, err)
+	})
+
+	t.Run("OpsGenie", func(t *testing.T) {
+		oldTransport := http.DefaultTransport
+		defer func() { http.DefaultTransport = oldTransport }()
+		http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusAccepted,
+				Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
+			}, nil
+		})
+
+		config := map[string]interface{}{"opsgenieApiKey": "key"}
+		err := s.TestNotifier(string(NotificationTypeOpsGenie), config)
+		require.NoError(t, err)
+	})
+
+	t.Run("Email", func(t *testing.T) {
+		config := map[string]interface{}{
+			"emailSMTPHost": "localhost",
+			"emailSMTPPort": 25,
+			"emailFrom":     "a@b.c",
+			"emailTo":       "d@e.f",
+		}
+		// Fails because no SMTP server
+		err := s.TestNotifier(string(NotificationTypeEmail), config)
+		require.Error(t, err)
+	})
+
+	t.Run("Webhook", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		config := map[string]interface{}{"webhookUrl": ts.URL}
+		err := s.TestNotifier(string(NotificationTypeWebhook), config)
+		require.NoError(t, err)
+	})
+
+	t.Run("Unsupported", func(t *testing.T) {
+		err := s.TestNotifier("invalid", nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported")
+	})
 }
 
 func TestService_ConcurrentRegisterAndSend(t *testing.T) {

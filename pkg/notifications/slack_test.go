@@ -48,6 +48,20 @@ func TestSlackNotifier_Send(t *testing.T) {
 			wantUsername: "KubeStellar Console",
 			wantEmoji:    ":information_source:",
 		},
+		{
+			name: "warning alert",
+			alert: Alert{
+				RuleName: "High Memory",
+				Severity: SeverityWarning,
+				Status:   "firing",
+				Message:  "Memory is at 85%",
+				FiredAt:  time.Now(),
+			},
+			channel:      "#ops",
+			wantColor:    "warning",
+			wantUsername: "KubeStellar Console",
+			wantEmoji:    ":warning:",
+		},
 	}
 
 	for _, tc := range tests {
