@@ -95,10 +95,10 @@ type Hub struct {
 	// fields that were read concurrently by incoming WebSocket handshakes
 	// (HandleConnection runs on Fiber worker goroutines). -race caught the
 	// write/read pair whenever config was set after the hub started.
-	configMu  sync.RWMutex
-	jwtSecret string // JWT secret for WebSocket auth (guarded by configMu)
-	devMode   bool   // when true, demo-token bypass is allowed (guarded by configMu)
-	maxConnections int // Maximum allowed concurrent WebSocket connections
+	configMu       sync.RWMutex
+	jwtSecret      string // JWT secret for WebSocket auth (guarded by configMu)
+	devMode        bool   // when true, demo-token bypass is allowed (guarded by configMu)
+	maxConnections int    // Maximum allowed concurrent WebSocket connections
 }
 
 // Client.closeOnce ensures the underlying WebSocket connection is closed
@@ -125,13 +125,13 @@ func NewHub() *Hub {
 	slog.Info("[WebSocket] connection limit configured", "max", maxConnections)
 
 	return &Hub{
-		clients:      make(map[*Client]bool),
-		userIndex:    make(map[uuid.UUID][]*Client),
-		demoSessions: make(map[string]time.Time),
-		broadcast:    make(chan broadcastMessage, 256),
-		register:     make(chan *Client),
-		unregister:   make(chan *Client),
-		done:         make(chan struct{}),
+		clients:        make(map[*Client]bool),
+		userIndex:      make(map[uuid.UUID][]*Client),
+		demoSessions:   make(map[string]time.Time),
+		broadcast:      make(chan broadcastMessage, 256),
+		register:       make(chan *Client),
+		unregister:     make(chan *Client),
+		done:           make(chan struct{}),
 		maxConnections: maxConnections,
 	}
 }
@@ -214,7 +214,11 @@ func (h *Hub) Run() {
 						case h.unregister <- c:
 						default:
 						}
-						c.closeConn()
+						// #7434 — Do not call c.closeConn() directly from here.
+						// Sending to h.unregister will cause the hub to close
+						// c.send, which signals the writer goroutine to exit
+						// and call closeConn() in its defer. This ensures
+						// synchronization within the HandleConnection lifecycle.
 					}(client)
 				}
 			}
@@ -407,7 +411,7 @@ func (h *Hub) BroadcastAll(msg Message) {
 				case h.unregister <- c:
 				default:
 				}
-				c.closeConn()
+				// #7434 — Do not call c.closeConn() directly from here.
 			}(client)
 		}
 	}
@@ -424,6 +428,11 @@ func (h *Hub) HandleConnection(conn *websocket.Conn) {
 	// #6576 — snapshot hub config under lock so subsequent reads are
 	// race-free even if SetJWTSecret/SetDevMode is called concurrently.
 	jwtSecret, devMode := h.config()
+
+	// #7434 — Use a WaitGroup to ensure the writer goroutine exits before
+	// HandleConnection returns. This prevents racing with the library's
+	// internal connection cleanup (releaseConn).
+	var wg sync.WaitGroup
 
 	// Set read deadline for authentication message (5 seconds)
 	conn.SetReadDeadline(time.Now().Add(wsReadDeadline))
@@ -550,7 +559,9 @@ func (h *Hub) HandleConnection(conn *websocket.Conn) {
 
 	// Start writer goroutine — also sends periodic WebSocket-level pings
 	// so the browser responds with pongs and the read deadline keeps resetting.
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		pingTicker := time.NewTicker(30 * time.Second)
 		defer func() {
 			pingTicker.Stop()
@@ -603,6 +614,10 @@ func (h *Hub) HandleConnection(conn *websocket.Conn) {
 		}
 		// #6584 — close exactly once across all goroutines.
 		client.closeConn()
+
+		// #7434 — Wait for the writer goroutine to exit before returning.
+		// Library internal cleanup happens after this handler returns.
+		wg.Wait()
 	}()
 
 	for {
