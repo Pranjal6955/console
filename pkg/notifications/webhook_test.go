@@ -87,8 +87,9 @@ func TestWebhookNotifier_NonSuccessStatus(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	n, _ := NewWebhookNotifier(ts.URL)
-	err := n.Send(Alert{FiredAt: time.Now()})
+	n, err := NewWebhookNotifier(ts.URL)
+	require.NoError(t, err)
+	err = n.Send(Alert{FiredAt: time.Now()})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "webhook endpoint returned status 500")
 }
