@@ -28,8 +28,10 @@ export function useCachedJaegerStatus() {
                 avgLatencyMs: 0,
                 p95LatencyMs: 0,
                 p99LatencyMs: 0,
+                spansDroppedLastHour: 0,
+                avgQueueLength: 0,
             },
-        } as JaegerStatus,
+        },
         demoData: getDemoJaegerStatus(),
         fetcher: async () => {
             const data = await fetchJaegerStatus()
