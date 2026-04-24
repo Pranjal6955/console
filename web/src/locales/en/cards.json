@@ -369,7 +369,7 @@
     "pipeline_flow": "Live Runs",
     "recent_failures": "Recent Failures",
     "thanos_status": "Thanos",
-    "jaeger_status": "Jaeger Tracing"
+    "jaeger_status": "Jaeger Tracing",
     "harbor_status": "Harbor Registry"
   },
   "descriptions": {
@@ -577,7 +577,7 @@
     "traces": "Traces",
     "notDetected": "Jaeger Not Detected",
     "notDetectedDesc": "Distributed tracing is not yet configured or Jaeger was not found in your cluster.",
-    "viewDocs": "View Setup Guide"
+    "viewDocs": "View Setup Guide",
     "harbor_status": "Harbor registry projects, repositories, and vulnerability scan results."
   },
   "categories": {
