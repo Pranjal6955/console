@@ -225,7 +225,7 @@ export async function fetchJaegerStatus(): Promise<any | null> {
 
     if (!res.ok) return null
     return await res.json().catch(() => null)
-  } catch (err) {
+  } catch {
     // Suppress console noise on expected fetch timeouts
     return null
   }
