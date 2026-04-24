@@ -93,6 +93,7 @@ export const CARD_TITLES: Record<string, string> = {
   helm_history: 'Helm History',
   helm_values_diff: 'Helm Values Diff',
   kustomization_status: 'Kustomization Status',
+  flux_status: 'Flux CD',
   buildpacks_status: 'Buildpacks Status',
   overlay_comparison: 'Overlay Comparison',
   chart_versions: 'Helm Chart Versions',
@@ -292,12 +293,15 @@ export const CARD_TITLES: Record<string, string> = {
   cascade_impact_map: 'Cascade Impact Map',
   config_drift_heatmap: 'Config Drift Heatmap',
   resource_imbalance_detector: 'Resource Imbalance Detector',
+  right_size_advisor: 'Right-Size Advisor',
   restart_correlation_matrix: 'Restart Correlation Matrix',
   deployment_rollout_tracker: 'Deployment Rollout Tracker',
   // KEDA
   keda_status: 'KEDA',
   // OpenYurt edge computing
   openyurt_status: 'OpenYurt',
+  // KServe model serving
+  kserve_status: 'KServe',
   // Knative serverless
   knative_status: 'Knative',
   // Karmada multi-cluster orchestration
@@ -401,6 +405,7 @@ export const CARD_DESCRIPTIONS: Record<string, string> = {
   helm_history: 'Revision history and rollback options for Helm releases.',
   helm_values_diff: 'Diff of Helm values between revisions.',
   kustomization_status: 'Status of Kustomize overlays and their resources.',
+  flux_status: 'Flux Git repositories, kustomizations, and Helm release reconciliation status across clusters.',
   overlay_comparison: 'Compare Kustomize overlays across environments.',
   chart_versions: 'Available Helm chart versions and update status.',
   argocd_applications: 'ArgoCD application inventory and sync status.',
@@ -577,6 +582,7 @@ export const CARD_DESCRIPTIONS: Record<string, string> = {
   cascade_impact_map: 'Visualizes how issues cascade across clusters over time.',
   config_drift_heatmap: 'Cluster-pair matrix showing degree of configuration drift.',
   resource_imbalance_detector: 'Detects CPU/memory utilization skew across the fleet.',
+  right_size_advisor: 'Per-cluster sizing verdicts — under-provisioned, right-sized, or over-provisioned — with actionable recommendations and a headroom buffer slider.',
   restart_correlation_matrix: 'Detects horizontal (app bug) vs vertical (infra issue) restart patterns.',
   deployment_rollout_tracker: 'Tracks deployment rollout progress across clusters.',
   // KEDA
@@ -585,6 +591,8 @@ export const CARD_DESCRIPTIONS: Record<string, string> = {
   keycloak_status: 'Keycloak is a CNCF-incubating open-source Identity and Access Management solution. This card monitors the Keycloak Operator health, realm status, active user sessions, and registered clients across your clusters.',
   // OpenYurt edge computing
   openyurt_status: 'OpenYurt extends Kubernetes to edge computing scenarios. This card monitors edge node pools, node autonomy status, and Raven gateway connectivity between edge and cloud clusters.',
+  // KServe model serving
+  kserve_status: 'KServe is a CNCF incubating model serving platform on Kubernetes. This card monitors InferenceService readiness, replica health, request throughput, and serving latency across clusters.',
   // Knative serverless
   knative_status: 'Knative is a CNCF graduated platform for serverless workloads on Kubernetes. This card monitors Knative Serving services, revision status, traffic routing, and Eventing broker health across your clusters.',
   // Karmada multi-cluster orchestration

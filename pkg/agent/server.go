@@ -157,6 +157,8 @@ type Server struct {
 	todayTokensIn     int64
 	todayTokensOut    int64
 	todayDate         string // YYYY-MM-DD format to detect day change
+	lastSavedIn       int64  // todayTokensIn at last saveTokenUsage, for delta computation (#9730)
+	lastSavedOut      int64  // todayTokensOut at last saveTokenUsage, for delta computation (#9730)
 	sessionTokenQuota int64  // max total tokens per session; 0 = unlimited (#9438)
 
 	// Prediction system
@@ -176,8 +178,11 @@ type Server struct {
 	backendCmd *exec.Cmd
 	backendMux sync.Mutex
 
-	// Active chat cancel functions — maps sessionID → cancel for in-progress chats
-	activeChatCtxs   map[string]context.CancelFunc
+	// activeChatEntry binds an in-progress session's cancel function to the
+	// WebSocket connection that started it (#9712). handleCancelChat uses the
+	// conn pointer to verify the requester owns the session before cancelling,
+	// preventing cross-session CSRF/bypass attacks.
+	activeChatCtxs   map[string]activeChatEntry
 	activeChatCtxsMu sync.Mutex
 
 	// dryRunSessions tracks session IDs that are in dry-run mode.
@@ -294,7 +299,7 @@ func NewServer(cfg Config) (*Server, error) {
 		agentToken:        agentToken,
 		sessionStart:      now,
 		todayDate:         now.Format("2006-01-02"),
-		activeChatCtxs:    make(map[string]context.CancelFunc),
+		activeChatCtxs:    make(map[string]activeChatEntry),
 		dryRunSessions:    make(map[string]bool),
 		sessionTokenQuota: sessionQuota,
 	}

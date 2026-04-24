@@ -57,6 +57,26 @@
     "targets": "Targets",
     "openDocs": "Open Thanos Docs"
   },
+  "ciliumStatus": {
+    "title": "Cilium",
+    "subtitle": "eBPF Data Plane",
+    "healthy": "Healthy",
+    "degraded": "Degraded",
+    "unhealthy": "Unhealthy",
+    "nodes": "Nodes",
+    "networkPolicies": "Network Policies",
+    "endpoints": "Endpoints",
+    "hubbleFlows": "Hubble Flows",
+    "forwarded": "Forwarded",
+    "dropped": "Dropped",
+    "perSecond": "/s",
+    "hubbleEnabled": "Hubble Enabled",
+    "ebpf": "eBPF",
+    "name": "Name",
+    "status": "Status",
+    "version": "Version",
+    "openDocs": "Open Cilium Docs"
+  },
   "securityIssues": {
     "highSeverityTitle": "{{count}} high severity security issues requiring immediate attention",
     "highSeverityTitle_one": "{{count}} high severity security issue requiring immediate attention",
@@ -140,12 +160,30 @@
       "pendingJoins_other": "{{count}} pending join requests",
       "providerAccessDenied": "Access denied for {{provider}} on {{context}}",
       "providers": {
-        "ocm": { "label": "OCM", "fullName": "Open Cluster Management" },
-        "karmada": { "label": "Karmada", "fullName": "Karmada" },
-        "clusternet": { "label": "Clusternet", "fullName": "Clusternet" },
-        "liqo": { "label": "Liqo", "fullName": "Liqo" },
-        "kubeadmiral": { "label": "KubeAdmiral", "fullName": "KubeAdmiral" },
-        "capi": { "label": "CAPI", "fullName": "Cluster API" }
+        "ocm": {
+          "label": "OCM",
+          "fullName": "Open Cluster Management"
+        },
+        "karmada": {
+          "label": "Karmada",
+          "fullName": "Karmada"
+        },
+        "clusternet": {
+          "label": "Clusternet",
+          "fullName": "Clusternet"
+        },
+        "liqo": {
+          "label": "Liqo",
+          "fullName": "Liqo"
+        },
+        "kubeadmiral": {
+          "label": "KubeAdmiral",
+          "fullName": "KubeAdmiral"
+        },
+        "capi": {
+          "label": "CAPI",
+          "fullName": "Cluster API"
+        }
       }
     }
   },
@@ -216,6 +254,7 @@
     "helm_history": "Helm History",
     "helm_values_diff": "Helm Values Diff",
     "kustomization_status": "Kustomization Status",
+    "flux_status": "Flux CD",
     "overlay_comparison": "Overlay Comparison",
     "chart_versions": "Helm Chart Versions",
     "argocd_applications": "ArgoCD Applications",
@@ -316,6 +355,7 @@
     "fluentd_status": "Fluentd",
     "lima_status": "Lima",
     "keda_status": "KEDA",
+    "kserve_status": "KServe",
     "knative_status": "Knative",
     "fluid_status": "Fluid",
     "openyurt_status": "OpenYurt",
@@ -396,6 +436,7 @@
     "helm_history": "Revision history and rollback options for Helm releases.",
     "helm_values_diff": "Diff of Helm values between revisions.",
     "kustomization_status": "Status of Kustomize overlays and their resources.",
+    "flux_status": "Flux Git repositories, kustomizations, and Helm release reconciliation status.",
     "overlay_comparison": "Compare Kustomize overlays across environments.",
     "chart_versions": "Available Helm chart versions and update status.",
     "argocd_applications": "ArgoCD application inventory and sync status.",
@@ -500,6 +541,7 @@
     "fluentd_status": "Log pipeline status, buffer utilization, and output plugin health.",
     "lima_status": "Lima virtual machine instances and resource usage.",
     "keda_status": "KEDA autoscaler status, scaled object metrics, and trigger queue depths.",
+    "kserve_status": "KServe inference service readiness, model serving throughput, and latency health.",
     "knative_status": "Knative serving revisions, traffic routing, and eventing broker status.",
     "fluid_status": "Fluid dataset caching status, runtime health, and data load progress.",
     "openyurt_status": "OpenYurt edge node pools, autonomy status, and edge-cloud connectivity.",
@@ -2368,7 +2410,8 @@
     "podCount_other": "{{count}} pods",
     "gpuCountLabel": "{{count}} GPUs",
     "gpuCountLabel_one": "{{count}} GPU",
-    "gpuCountLabel_other": "{{count}} GPUs"
+    "gpuCountLabel_other": "{{count}} GPUs",
+    "viewNamespaceAria": "View GPU namespace {{namespace}}"
   },
   "gpuOverview": {
     "noReachableClusters": "No reachable clusters",
@@ -2682,7 +2725,8 @@
     "totalRAM": "Total RAM",
     "cores": "cores",
     "totalLabel": "Total {{label}}",
-    "overcommitted": "{{used}}/{{total}} overcommitted"
+    "overcommitted": "{{used}}/{{total}} overcommitted",
+    "viewDetailsAria": "View resource usage details"
   },
   "serviceExports": {
     "loadFailed": "Failed to load service exports",
@@ -2935,6 +2979,27 @@
     "failing": "Failing",
     "selectCluster": "Select cluster...",
     "allNamespaces": "All namespaces"
+  },
+  "fluxStatus": {
+    "healthy": "Healthy",
+    "degraded": "Degraded",
+    "notInstalled": "Flux not detected",
+    "notInstalledHint": "No Flux GitRepository, Kustomization, or HelmRelease resources found.",
+    "fetchError": "Failed to fetch Flux status",
+    "sources": "Sources",
+    "kustomizations": "Kustomizations",
+    "helmReleases": "Helm Releases",
+    "notReady": "Not Ready",
+    "sectionSources": "Git Repositories",
+    "sectionKustomizations": "Kustomizations",
+    "sectionHelmReleases": "Helm Releases",
+    "noResources": "No resources found",
+    "statusReady": "Ready",
+    "statusNotReady": "Not Ready",
+    "syncedJustNow": "just now",
+    "syncedMinutesAgo": "{{count}}m ago",
+    "syncedHoursAgo": "{{count}}h ago",
+    "syncedDaysAgo": "{{count}}d ago"
   },
   "kubecostOverview": {
     "monthlyCost": "Monthly Cost",
@@ -3593,7 +3658,8 @@
     "clickSettings": "Click settings to add a URL",
     "autoRefreshEvery": "Auto-refreshes every {{seconds}}s",
     "titlePlaceholder": "My Dashboard",
-    "closeSettingsAria": "Close settings"
+    "closeSettingsAria": "Close settings",
+    "demoModePlaceholder": "Demo mode — iframe disabled"
   },
   "namespaceOverview": {
     "noNamespaces": "No namespaces",
@@ -3906,6 +3972,39 @@
     "namespaceLabel": "Namespace:",
     "policyDocumentation": "Policy Documentation",
     "createSimilar": "Create Similar Policy"
+  },
+  "kserve": {
+    "healthy": "Healthy",
+    "degraded": "Degraded",
+    "notInstalled": "KServe not detected",
+    "notInstalledHint": "No KServe controller pods found. Deploy KServe to monitor model-serving inference workloads.",
+    "fetchError": "Failed to fetch KServe status",
+    "controllerPods": "controllers",
+    "services": "Services",
+    "readyServices": "Ready",
+    "requestsPerSecond": "Requests/sec",
+    "requestsPerSecondShort": "RPS",
+    "p95Latency": "P95 Latency",
+    "p95LatencyShort": "P95",
+    "replicas": "Replicas",
+    "traffic": "Traffic",
+    "updated": "Updated",
+    "ready": "Ready",
+    "notReady": "Not Ready",
+    "unknown": "Unknown",
+    "servicesWithIssues": "{{count}} service(s) with issues",
+    "searchPlaceholder": "Search inference services…",
+    "noServices": "No inference services available.",
+    "noSearchResults": "No inference services match your search.",
+    "docs": "KServe docs",
+    "installGuide": "KServe install guide",
+    "footer": "{{count}} inference services",
+    "issueName": "InferenceService {{name}} requires attention",
+    "issueMessage": "KServe InferenceService is currently {{status}}.",
+    "syncedJustNow": "just now",
+    "syncedMinutesAgo": "{{count}}m ago",
+    "syncedHoursAgo": "{{count}}h ago",
+    "syncedDaysAgo": "{{count}}d ago"
   },
   "knative": {
     "healthy": "Healthy",

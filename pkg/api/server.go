@@ -31,6 +31,7 @@ import (
 	"github.com/kubestellar/console/pkg/api/audit"
 	"github.com/kubestellar/console/pkg/api/handlers"
 	"github.com/kubestellar/console/pkg/api/middleware"
+	"github.com/kubestellar/console/pkg/compliance/residency"
 	"github.com/kubestellar/console/pkg/k8s"
 	"github.com/kubestellar/console/pkg/kagent"
 	"github.com/kubestellar/console/pkg/kagenti_provider"
@@ -55,7 +56,8 @@ const (
 
 	// feedbackBodyLimit is the global Fiber BodyLimit, elevated to support
 	// base64-encoded screenshot uploads in POST /api/feedback/requests.
-	feedbackBodyLimit = 20 * 1024 * 1024 // 20 MB — base64 screenshot uploads
+	// Reduced from 20 MB to 5 MB to limit memory-based DoS surface (#9710).
+	feedbackBodyLimit = 5 * 1024 * 1024 // 5 MB — base64 screenshot uploads
 )
 
 // Version is the build version, injected via ldflags at build time.
@@ -235,13 +237,11 @@ func NewServer(cfg Config) (*Server, error) {
 		"::1/128",        // IPv6 loopback
 	}
 
-	// BodyLimit is set to feedbackBodyLimit (20 MB) because the feedback endpoint
+	// BodyLimit is set to feedbackBodyLimit (5 MB) because the feedback endpoint
 	// accepts base64-encoded screenshot uploads. Per-route enforcement is done by
 	// bodyGuard middleware (1 MB for most routes) and analyticsBodyGuard (64 KB).
-	// Fiber buffers up to BodyLimit before middleware runs, so a concurrent flood
-	// of max-size bodies can still cause memory pressure (#7039). ReadTimeout (30s)
-	// bounds the buffering window; for stricter enforcement, deploy behind an
-	// ingress controller with its own body-size limit (e.g. nginx client_max_body_size).
+	// Reduced from 20 MB to 5 MB to limit memory-based DoS surface (#9710).
+	// ReadTimeout (30s) further bounds the buffering window.
 	app := fiber.New(fiber.Config{
 		ErrorHandler:            customErrorHandler,
 		ReadBufferSize:          16384,
@@ -811,6 +811,45 @@ func (s *Server) setupRoutes() {
 	missions := handlers.NewMissionsHandler()
 	missions.RegisterPublicRoutes(s.app.Group("/api/missions"))
 
+	// Compliance frameworks public read endpoints (no auth — needed for demo mode).
+	// POST endpoints (evaluate, report) are registered on the auth-protected api group below.
+	complianceFrameworks := handlers.NewComplianceFrameworksHandler(nil)
+	complianceFrameworks.RegisterPublicRoutes(s.app.Group("/api/compliance/frameworks", publicLimiter))
+	// Data residency enforcement (public read — demo mode).
+	residencyEngine := residency.NewEngine()
+	dataResidency := handlers.NewDataResidencyHandler(residencyEngine)
+	dataResidency.RegisterPublicRoutes(s.app.Group("/api/compliance/residency", publicLimiter))
+
+	// Change control audit trail public read endpoints (demo mode).
+	changeControl := handlers.NewChangeControlHandler()
+	changeControl.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+
+	// Segregation of duties public read endpoints (demo mode).
+	sodHandler := handlers.NewSoDHandler()
+	sodHandler.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+
+	// BAA tracker public read endpoints (demo mode).
+	baaHandler := handlers.NewBAAHandler()
+	baaHandler.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+	// HIPAA compliance public read endpoints (demo mode).
+	hipaaHandler := handlers.NewHIPAAHandler()
+	hipaaHandler.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+	// GxP / 21 CFR Part 11 public read endpoints (demo mode).
+	gxpHandler := handlers.NewGxPHandler()
+	gxpHandler.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+	// NIST 800-53 control mapping public read endpoints (demo mode).
+	nistHandler := handlers.NewNIST80053Handler()
+	nistHandler.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+	// DISA STIG compliance public read endpoints (demo mode).
+	stigHandler := handlers.NewSTIGHandler()
+	stigHandler.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+	// Air-gap readiness public read endpoints (demo mode).
+	airgapHandler := handlers.NewAirGapHandler()
+	airgapHandler.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+	// FedRAMP readiness public read endpoints (demo mode).
+	fedrampHandler := handlers.NewFedRAMPHandler()
+	fedrampHandler.RegisterPublicRoutes(s.app.Group("/api", publicLimiter))
+
 	// API routes (protected) — with rate limiting
 	//
 	// NOTE (#7033): Both authLimiter and apiLimiter use Fiber's default in-process
@@ -947,6 +986,18 @@ func (s *Server) setupRoutes() {
 	// Admin audit-log endpoint (#8670 Phase 3) — returns recent audit entries.
 	auditHandler := handlers.NewAuditHandler(s.store)
 	api.Get("/admin/audit-log", auditHandler.GetAuditLog)
+
+	// Compliance frameworks: pass nil evaluator for demo/synthetic results.
+	// A real evaluator requires a ClusterProber implementation backed by
+	// kubeconfig access to each managed cluster.
+	// Read-only GET routes are registered as public above; only POST
+	// (evaluate, report) requires authentication.
+	complianceFrameworks.RegisterRoutes(api.Group("/compliance/frameworks"))
+
+	// Compliance report generation: shares the same route group so
+	// POST /compliance/frameworks/:id/report sits alongside evaluate.
+	complianceReports := handlers.NewComplianceReportsHandler(nil)
+	complianceReports.RegisterRoutes(api.Group("/compliance/frameworks"))
 
 	// Namespace read routes. GET /namespaces is viewer-or-above (see
 	// ListNamespaces's requireViewerOrAbove check) and

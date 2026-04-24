@@ -401,7 +401,7 @@ class IndexedDBStorage implements CacheStorage {
         req.onsuccess = () => resolve()
         req.onerror = () => reject(req.error)
       })
-    } catch { /* ignore */ }
+    } catch (e) { console.warn('[Cache] IndexedDB put failed:', e) }
   }
 
   async delete(key: string): Promise<void> {
@@ -414,7 +414,7 @@ class IndexedDBStorage implements CacheStorage {
         req.onsuccess = () => resolve()
         req.onerror = () => resolve()
       })
-    } catch { /* ignore */ }
+    } catch (e) { console.warn('[Cache] IndexedDB delete failed:', e) }
   }
 
   async clear(): Promise<void> {
@@ -427,7 +427,7 @@ class IndexedDBStorage implements CacheStorage {
         req.onsuccess = () => resolve()
         req.onerror = () => resolve()
       })
-    } catch { /* ignore */ }
+    } catch (e) { console.warn('[Cache] IndexedDB clear failed:', e) }
   }
 
   async getStats(): Promise<{ keys: string[]; count: number }> {
@@ -1103,6 +1103,9 @@ export interface UseCacheResult<T> {
   /** Whether demoWhenEmpty fallback is active (live data returned empty, showing demo data) */
   isDemoFallback: boolean
 }
+
+/** Hook return shape without clearAndRefetch — used by useCached* wrapper hooks */
+export type CachedHookResult<T> = Omit<UseCacheResult<T>, 'clearAndRefetch'>
 
 export function useCache<T>({
   key,

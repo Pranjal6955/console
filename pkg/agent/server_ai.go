@@ -22,6 +22,19 @@ import (
 // to prevent resource exhaustion from bursty or malicious traffic (#7277).
 const maxWSGoroutines = 20
 
+// activeChatEntry pairs an in-progress session's context cancel function with
+// the WebSocket connection that started it. Storing the conn reference allows
+// handleCancelChat to verify the cancelling client owns the session, preventing
+// cross-session cancellation (CSRF/bypass — #9712).
+type activeChatEntry struct {
+	cancel context.CancelFunc
+	// conn is the WebSocket connection that registered this session.
+	// It is used as an ownership key: only the originating connection may
+	// cancel the session via the WebSocket cancel path. The HTTP cancel path
+	// (handleCancelChatHTTP) is separately guarded by validateToken.
+	conn *websocket.Conn
+}
+
 // cmdPrefixRe matches lines like "CMD: ...", "CMD:...", "Command: ...", or "command: ..."
 // used by extractCommandsFromResponse to parse mixed-mode thinking output (#9440).
 var cmdPrefixRe = regexp.MustCompile(`(?i)^(?:cmd|command)\s*:\s*(.+)`)
@@ -88,6 +101,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	writeMu := &wsc.writeMu
 	// closed is set when the read loop exits; goroutines check it before writing
 	var closed atomic.Bool
+
+	// connCtx is cancelled when the WebSocket read loop exits (client disconnect).
+	// AI goroutines derive their context from connCtx so that in-progress
+	// StreamChat calls are interrupted immediately on disconnect (#9709).
+	connCtx, connCancel := context.WithCancel(context.Background())
+	defer connCancel()
 
 	// Semaphore to limit concurrent work goroutines per connection (#7277)
 	sem := make(chan struct{}, maxWSGoroutines)
@@ -162,7 +181,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}()
-				s.handleChatMessageStreaming(conn, m, fa, writeMu, &closed)
+				s.handleChatMessageStreaming(connCtx, conn, m, fa, writeMu, &closed)
 			}(msg, forceAgent)
 		} else if msg.Type == protocol.TypeCancelChat {
 			// Cancel an in-progress chat by session ID
@@ -204,24 +223,35 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				conn.SetWriteDeadline(time.Time{})
 			}(msg)
 		} else {
-			// Wrap synchronous handleMessage with recover() so a panic
-			// doesn't kill the entire WebSocket read loop (#7267).
-			func() {
+			// Dispatch all remaining message types to a goroutine so the
+			// WebSocket read loop stays non-blocking (#9713). Previously this
+			// branch ran synchronously; a provider that takes time to respond
+			// blocked the read loop, preventing pings and cancel messages from
+			// being processed until the call returned.
+			// Goroutine count is bounded by the same semaphore as chat/kubectl.
+			sem <- struct{}{} // acquire slot
+			go func(m protocol.Message) {
+				defer func() { <-sem }() // release slot
 				defer func() {
 					if r := recover(); r != nil {
-						slog.Error("[WS] recovered from panic in synchronous handler", "panic", r, "msgType", msg.Type)
-						writeMu.Lock()
-						conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
-						_ = conn.WriteJSON(protocol.Message{
-							ID:   msg.ID,
-							Type: protocol.TypeError,
-							Payload: protocol.ErrorPayload{Code: "panic", Message: "Internal server error"},
-						})
-						conn.SetWriteDeadline(time.Time{})
-						writeMu.Unlock()
+						slog.Error("[WS] recovered from panic in async handler", "panic", r, "msgType", m.Type)
+						if !closed.Load() {
+							writeMu.Lock()
+							conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+							_ = conn.WriteJSON(protocol.Message{
+								ID:   m.ID,
+								Type: protocol.TypeError,
+								Payload: protocol.ErrorPayload{Code: "panic", Message: "Internal server error"},
+							})
+							conn.SetWriteDeadline(time.Time{})
+							writeMu.Unlock()
+						}
 					}
 				}()
-				response := s.handleMessage(msg)
+				response := s.handleMessage(m)
+				if closed.Load() {
+					return
+				}
 				writeMu.Lock()
 				conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 				err := conn.WriteJSON(response)
@@ -230,7 +260,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					slog.Error("write error", "error", err)
 				}
-			}()
+			}(msg)
 		}
 	}
 	closed.Store(true)
@@ -410,7 +440,7 @@ func (s *Server) handleKubectlMessage(msg protocol.Message) protocol.Message {
 // a write failure we log it, mark the connection closed, and early-out of
 // future safeWrite calls. The caller's outer goroutine sees closed.Load()
 // == true and will finish its work without further WebSocket traffic.
-func (s *Server) handleChatMessageStreaming(conn *websocket.Conn, msg protocol.Message, forceAgent string, writeMu *sync.Mutex, closed *atomic.Bool) {
+func (s *Server) handleChatMessageStreaming(connCtx context.Context, conn *websocket.Conn, msg protocol.Message, forceAgent string, writeMu *sync.Mutex, closed *atomic.Bool) {
 	safeWrite := func(ctx context.Context, outMsg protocol.Message) {
 		if closed.Load() || ctx.Err() != nil {
 			return
@@ -473,15 +503,24 @@ func (s *Server) handleChatMessageStreaming(conn *websocket.Conn, msg protocol.M
 	}
 
 	// Create a context with both cancel and timeout so that:
-	//   1. cancel_chat messages can stop this session immediately, and
+	//   1. cancel_chat messages can stop this session immediately,
 	//   2. a hard deadline prevents missions from running forever when the
-	//      AI provider hangs or never responds (#2375).
-	ctx, cancel := context.WithTimeout(context.Background(), missionExecutionTimeout)
+	//      AI provider hangs or never responds (#2375), and
+	//   3. client disconnect (connCtx cancelled) stops in-progress
+	//      StreamChat calls immediately, preventing goroutine/token leaks (#9709).
+	ctx, cancel := context.WithTimeout(connCtx, missionExecutionTimeout)
 	defer cancel()
 
-	// Register cancel function so handleCancelChat can stop this session
+	// Register cancel function so handleCancelChat can stop this session.
+	// If a previous request is still running for this SessionID, cancel it
+	// first to prevent orphaned goroutines (#9619).
+	// The conn reference is stored alongside the cancel function so that
+	// handleCancelChat can verify the requester owns the session (#9712).
 	s.activeChatCtxsMu.Lock()
-	s.activeChatCtxs[req.SessionID] = cancel
+	if prev, exists := s.activeChatCtxs[req.SessionID]; exists {
+		prev.cancel()
+	}
+	s.activeChatCtxs[req.SessionID] = activeChatEntry{cancel: cancel, conn: conn}
 	s.activeChatCtxsMu.Unlock()
 	defer func() {
 		s.activeChatCtxsMu.Lock()
@@ -799,15 +838,39 @@ func (s *Server) handleCancelChat(conn *websocket.Conn, msg protocol.Message, wr
 	// propagate across goroutine boundaries; if the provider's cleanup
 	// path attempts to re-lock activeChatCtxsMu, calling cancelFn inside
 	// the lock causes a deadlock.
+	//
+	// SECURITY (#9712): Only allow cancellation when the requesting connection
+	// (conn) matches the connection that originally registered the session.
+	// This prevents cross-session CSRF/bypass where User B cancels User A's
+	// mission by sending a cancel_chat message with a known sessionId.
 	s.activeChatCtxsMu.Lock()
-	cancelFn, ok := s.activeChatCtxs[req.SessionID]
+	entry, ok := s.activeChatCtxs[req.SessionID]
 	if ok {
+		if entry.conn != conn {
+			// Session exists but belongs to a different connection — reject.
+			s.activeChatCtxsMu.Unlock()
+			slog.Warn("[Chat] SECURITY: rejected cancel from non-owning connection",
+				"sessionID", req.SessionID, "requester", conn.RemoteAddr())
+			writeMu.Lock()
+			conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+			_ = conn.WriteJSON(protocol.Message{
+				ID:   msg.ID,
+				Type: protocol.TypeError,
+				Payload: protocol.ErrorPayload{
+					Code:    "unauthorized_cancel",
+					Message: "You do not own this session",
+				},
+			})
+			conn.SetWriteDeadline(time.Time{})
+			writeMu.Unlock()
+			return
+		}
 		delete(s.activeChatCtxs, req.SessionID)
 	}
 	s.activeChatCtxsMu.Unlock()
 
 	if ok {
-		cancelFn()
+		entry.cancel()
 		slog.Info("[Chat] cancelled chat", "sessionID", req.SessionID)
 	} else {
 		slog.Info("[Chat] no active chat to cancel", "sessionID", req.SessionID)
@@ -871,15 +934,17 @@ func (s *Server) handleCancelChatHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// #7432 — Same deadlock fix as handleCancelChat: extract cancelFn under
 	// the lock but invoke it after releasing the mutex.
+	// The HTTP path is already guarded by validateToken, so no additional
+	// ownership check is needed here (#9712).
 	s.activeChatCtxsMu.Lock()
-	cancelFn, ok := s.activeChatCtxs[req.SessionID]
+	entry, ok := s.activeChatCtxs[req.SessionID]
 	if ok {
 		delete(s.activeChatCtxs, req.SessionID)
 	}
 	s.activeChatCtxsMu.Unlock()
 
 	if ok {
-		cancelFn()
+		entry.cancel()
 		slog.Info("[Chat] cancelled chat via HTTP", "sessionID", req.SessionID)
 	} else {
 		slog.Info("[Chat] no active chat to cancel via HTTP", "sessionID", req.SessionID)
@@ -1213,6 +1278,14 @@ User request: %s`, req.Prompt)
 		Context:   chatCtx,
 	}
 
+	// #9618 — Check if WebSocket is still alive before expensive provider call.
+	// Without this, orphaned goroutines continue running AI requests for up to
+	// 5 minutes after the client disconnects.
+	if closed.Load() {
+		slog.Info("[MixedMode] connection closed before thinking call", "sessionID", sessionID)
+		return
+	}
+
 	thinkingResp, err := thinkingProvider.Chat(ctx, &thinkingReq)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -1280,6 +1353,11 @@ User request: %s`, req.Prompt)
 
 	var execContent string
 
+	if closed.Load() {
+		slog.Info("[MixedMode] connection closed before execution call", "sessionID", sessionID)
+		return
+	}
+
 	execResp, err := execProvider.Chat(ctx, &execReq)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -1334,6 +1412,11 @@ Command output:
 		Prompt:    analysisPrompt,
 		SessionID: sessionID,
 		History:   append(history, ChatMessage{Role: "assistant", Content: thinkingResp.Content}),
+	}
+
+	if closed.Load() {
+		slog.Info("[MixedMode] connection closed before analysis call", "sessionID", sessionID)
+		return
 	}
 
 	analysisResp, err := thinkingProvider.Chat(ctx, &analysisReq)
@@ -1593,14 +1676,16 @@ func (s *Server) addTokenUsage(usage *ProviderTokenUsage) {
 	s.todayTokensIn += int64(usage.InputTokens)
 	s.todayTokensOut += int64(usage.OutputTokens)
 
-	// Schedule a debounced flush: reset the timer if one is already pending,
-	// otherwise create a new one. This coalesces rapid-fire token updates into
-	// a single disk write (#9483).
-	if s.tokenFlushTimer != nil {
-		s.tokenFlushTimer.Stop()
-		s.tokenFlushTimer.Reset(tokenUsageFlushInterval)
-	} else {
+	// Schedule a non-resetting flush: if no timer is pending, start one.
+	// Unlike the previous debounce that reset on every call (#9616), this
+	// guarantees the flush fires within tokenUsageFlushInterval of the FIRST
+	// token update, preventing unbounded data loss if tokens arrive faster
+	// than the interval.
+	if s.tokenFlushTimer == nil {
 		s.tokenFlushTimer = time.AfterFunc(tokenUsageFlushInterval, func() {
+			s.tokenMux.Lock()
+			s.tokenFlushTimer = nil
+			s.tokenMux.Unlock()
 			s.saveTokenUsage()
 		})
 	}
@@ -1624,9 +1709,27 @@ func getTokenUsagePath() string {
 	return home + "/.kc-agent-tokens.json"
 }
 
-// loadTokenUsage loads token usage from disk on startup
+// tokenUsageLockSuffix is appended to the token usage file path to form
+// the advisory lock file path used by flock (#9730).
+const tokenUsageLockSuffix = ".lock"
+
+// loadTokenUsage loads token usage from disk on startup.
+// An advisory file lock (flock) is held during the read to prevent
+// observing a partially-written file from a concurrent instance (#9730).
 func (s *Server) loadTokenUsage() {
 	path := getTokenUsagePath()
+	lockPath := path + tokenUsageLockSuffix
+
+	release, err := acquireFileLock(lockPath)
+	if err != nil {
+		slog.Warn("could not acquire file lock for token load", "error", err)
+		// Fall through to best-effort unlocked read so a single-instance
+		// deployment is not broken by a lock failure.
+	}
+	if release != nil {
+		defer release()
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return // File doesn't exist yet
@@ -1647,33 +1750,82 @@ func (s *Server) loadTokenUsage() {
 		s.todayTokensIn = usage.InputIn
 		s.todayTokensOut = usage.OutputOut
 		s.todayDate = today
+		// Seed lastSaved so the first saveTokenUsage computes the correct
+		// delta relative to what was already on disk (#9730).
+		s.lastSavedIn = usage.InputIn
+		s.lastSavedOut = usage.OutputOut
 		slog.Info("loaded token usage", "inputTokens", usage.InputIn, "outputTokens", usage.OutputOut)
 	}
 }
 
 // saveTokenUsage persists token usage to disk.
-// tokenFileMux serializes the entire read-snapshot-write cycle so concurrent
-// goroutines spawned by addTokenUsage cannot clobber each other (#9441).
+//
+// To prevent multi-instance data corruption (#9730), this function:
+//  1. Acquires an inter-process advisory file lock (flock / LockFileEx).
+//  2. Reads the current on-disk state (which may include writes from other
+//     instances since our last save).
+//  3. Computes the delta this instance has accumulated since its last save.
+//  4. Merges the delta into the on-disk totals.
+//  5. Writes the merged result back and releases the lock.
+//
+// tokenFileMux continues to serialize concurrent goroutines within this
+// process (#9441); flock serializes across OS processes.
 func (s *Server) saveTokenUsage() {
 	s.tokenFileMux.Lock()
 	defer s.tokenFileMux.Unlock()
 
-	s.tokenMux.RLock()
-	usage := tokenUsageData{
-		Date:      s.todayDate,
-		InputIn:   s.todayTokensIn,
-		OutputOut: s.todayTokensOut,
-	}
-	s.tokenMux.RUnlock()
+	path := getTokenUsagePath()
+	lockPath := path + tokenUsageLockSuffix
 
-	data, err := json.Marshal(usage)
+	// Acquire inter-process lock (#9730).
+	release, lockErr := acquireFileLock(lockPath)
+	if lockErr != nil {
+		slog.Warn("could not acquire file lock for token save", "error", lockErr)
+		// Fall through to best-effort unlocked write for single-instance
+		// deployments where flock is unavailable (e.g. NFS without lock
+		// daemon). The in-process tokenFileMux still prevents goroutine races.
+	}
+	if release != nil {
+		defer release()
+	}
+
+	// Snapshot current in-memory counters.
+	s.tokenMux.Lock()
+	currentDate := s.todayDate
+	currentIn := s.todayTokensIn
+	currentOut := s.todayTokensOut
+	prevSavedIn := s.lastSavedIn
+	prevSavedOut := s.lastSavedOut
+	s.tokenMux.Unlock()
+
+	// Compute the delta this instance accumulated since its last save.
+	deltaIn := currentIn - prevSavedIn
+	deltaOut := currentOut - prevSavedOut
+
+	// Read on-disk state (may contain writes from other instances).
+	var onDisk tokenUsageData
+	if diskData, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(diskData, &onDisk)
+	}
+
+	// Merge: if the on-disk date matches, add our delta to the on-disk
+	// totals. Otherwise start fresh for the new day.
+	merged := tokenUsageData{Date: currentDate}
+	if onDisk.Date == currentDate {
+		merged.InputIn = onDisk.InputIn + deltaIn
+		merged.OutputOut = onDisk.OutputOut + deltaOut
+	} else {
+		merged.InputIn = deltaIn
+		merged.OutputOut = deltaOut
+	}
+
+	data, err := json.Marshal(merged)
 	if err != nil {
 		return
 	}
 
-	path := getTokenUsagePath()
 	// Atomic write: write to a temp file then rename to avoid corruption
-	// when multiple goroutines persist concurrently (#6996).
+	// if the process is killed mid-write (#6996).
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, agentFileMode); err != nil {
 		slog.Warn("could not write token usage temp file", "error", err)
@@ -1681,7 +1833,26 @@ func (s *Server) saveTokenUsage() {
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		slog.Warn("could not rename token usage temp file", "error", err)
+		return
 	}
+
+	// Update last-saved watermarks so the next save computes the correct
+	// delta. Also update in-memory counters to reflect the merged on-disk
+	// totals (includes other instances' contributions).
+	s.tokenMux.Lock()
+	s.lastSavedIn = currentIn
+	s.lastSavedOut = currentOut
+	// If another instance wrote tokens while we held the lock, our
+	// in-memory view should reflect the merged total so that getClaudeInfo
+	// reports accurate numbers.
+	if currentDate == s.todayDate {
+		s.todayTokensIn = merged.InputIn
+		s.todayTokensOut = merged.OutputOut
+		// Re-base lastSaved to merged totals so the next delta is correct.
+		s.lastSavedIn = merged.InputIn
+		s.lastSavedOut = merged.OutputOut
+	}
+	s.tokenMux.Unlock()
 }
 
 // extractCommandsFromResponse parses an LLM thinking response to find

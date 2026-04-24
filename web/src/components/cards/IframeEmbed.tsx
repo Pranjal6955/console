@@ -128,16 +128,16 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
     setLastRefresh(new Date())
   }, [url])
 
-  // Auto-refresh
+  // Auto-refresh (disabled in demo mode because the iframe itself is disabled)
   useEffect(() => {
-    if (refreshInterval <= 0 || !url) return
+    if (isDemoMode || refreshInterval <= 0 || !url) return
 
     const interval = setInterval(() => {
       handleRefresh()
     }, refreshInterval * 1000)
 
     return () => clearInterval(interval)
-  }, [refreshInterval, url, handleRefresh])
+  }, [isDemoMode, refreshInterval, url, handleRefresh])
 
   const handleLoad = () => {
     setIsLoading(false)
@@ -212,7 +212,7 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
         {/* Header controls */}
         <div className="flex flex-wrap items-center justify-between gap-y-2 mb-2">
           <div className="flex items-center gap-2 min-w-0">
-            <Globe className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <Globe className="w-4 h-4 text-muted-foreground shrink-0" />
             {url && !showSettings ? (
               <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={url}>
                 {url}
@@ -275,7 +275,7 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
                   value={urlInput}
                   onChange={(e) => setUrlInput(e.target.value)}
                   placeholder="https://grafana.example.com/d/dashboard"
-                  className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-hidden focus:ring-1 focus:ring-primary"
                 />
               </div>
 
@@ -286,7 +286,7 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
                   value={titleInput}
                   onChange={(e) => setTitleInput(e.target.value)}
                   placeholder={t('cards:iframeEmbed.titlePlaceholder')}
-                  className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-hidden focus:ring-1 focus:ring-primary"
                 />
               </div>
 
@@ -300,7 +300,7 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
                     value={refreshInterval}
                     onChange={(e) => setRefreshInterval(parseInt(e.target.value) || 0)}
                     placeholder="0 = disabled"
-                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-hidden focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div>
@@ -311,7 +311,7 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
                     max="1000"
                     value={height}
                     onChange={(e) => setHeight(parseInt(e.target.value) || DEFAULT_HEIGHT)}
-                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-hidden focus:ring-1 focus:ring-primary"
                   />
                 </div>
               </div>
@@ -371,7 +371,7 @@ export function IframeEmbed({ config }: { config?: IframeEmbedConfig }) {
               >
                 <Globe className="w-10 h-10 opacity-40" />
                 <span className="text-sm font-medium">{title}</span>
-                <span className="text-xs opacity-60">Demo mode — iframe disabled</span>
+                <span className="text-xs opacity-60">{t('cards:iframeEmbed.demoModePlaceholder')}</span>
               </div>
             )}
 

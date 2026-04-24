@@ -23,6 +23,7 @@ import { argocdSyncStatusConfig } from './argocd-sync-status'
 import { certManagerConfig } from './cert-manager'
 import { chartVersionsConfig } from './chart-versions'
 import { checkersConfig } from './checkers'
+import { ciliumStatusConfig } from './cilium-status'
 import { clusterComparisonConfig } from './cluster-comparison'
 import { clusterCostsConfig } from './cluster-costs'
 import { clusterFocusConfig } from './cluster-focus'
@@ -59,6 +60,7 @@ import { game2048Config } from './game-2048'
 import { gatewayStatusConfig } from './gateway-status'
 import { githubActivityConfig } from './github-activity'
 import { githubCiMonitorConfig } from './github-ci-monitor'
+import { fluxStatusConfig } from './flux-status'
 import { nightlyReleasePulseConfig } from './nightly-release-pulse'
 import { workflowMatrixConfig } from './workflow-matrix'
 import { pipelineFlowConfig } from './pipeline-flow'
@@ -176,6 +178,7 @@ import { clusterDeltaDetectorConfig } from './cluster-delta-detector'
 import { cascadeImpactMapConfig } from './cascade-impact-map'
 import { configDriftHeatmapConfig } from './config-drift-heatmap'
 import { resourceImbalanceDetectorConfig } from './resource-imbalance-detector'
+import { rightSizeAdvisorConfig } from './right-size-advisor'
 import { restartCorrelationMatrixConfig } from './restart-correlation-matrix'
 import { deploymentRolloutTrackerConfig } from './deployment-rollout-tracker'
 import { fleetComplianceHeatmapConfig } from './fleet-compliance-heatmap'
@@ -200,6 +203,7 @@ export const CARD_CONFIGS: CardConfigRegistry = {
   cert_manager: certManagerConfig,
   chart_versions: chartVersionsConfig,
   checkers: checkersConfig,
+  cilium_status: ciliumStatusConfig,
   cluster_comparison: clusterComparisonConfig,
   cluster_costs: clusterCostsConfig,
   cluster_focus: clusterFocusConfig,
@@ -236,6 +240,7 @@ export const CARD_CONFIGS: CardConfigRegistry = {
   gateway_status: gatewayStatusConfig,
   github_activity: githubActivityConfig,
   github_ci_monitor: githubCiMonitorConfig,
+  flux_status: fluxStatusConfig,
   nightly_release_pulse: nightlyReleasePulseConfig,
   workflow_matrix: workflowMatrixConfig,
   pipeline_flow: pipelineFlowConfig,
@@ -354,6 +359,7 @@ export const CARD_CONFIGS: CardConfigRegistry = {
   cascade_impact_map: cascadeImpactMapConfig,
   config_drift_heatmap: configDriftHeatmapConfig,
   resource_imbalance_detector: resourceImbalanceDetectorConfig,
+  right_size_advisor: rightSizeAdvisorConfig,
   restart_correlation_matrix: restartCorrelationMatrixConfig,
   deployment_rollout_tracker: deploymentRolloutTrackerConfig,
   // Cross-cluster compliance cards
@@ -466,6 +472,7 @@ export {
   certManagerConfig,
   chartVersionsConfig,
   checkersConfig,
+  ciliumStatusConfig,
   clusterComparisonConfig,
   clusterCostsConfig,
   clusterFocusConfig,

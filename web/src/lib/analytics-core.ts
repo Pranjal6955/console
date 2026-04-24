@@ -626,6 +626,116 @@ export function emitPageView(path: string) {
 // Maximum length for error detail strings to avoid oversized payloads
 const ERROR_DETAIL_MAX_LEN = 100
 
+// Maximum length for the inferred component name dimension. Keeps GA4 custom
+// dimension cardinality bounded (GA4 truncates parameter values at 100 chars
+// regardless, but a tighter cap also keeps reports readable).
+const COMPONENT_NAME_MAX_LEN = 60
+
+// Maximum length for the inferred error type dimension. JS error names are
+// short (TypeError, RangeError, etc.), so 40 chars is plenty.
+const ERROR_TYPE_MAX_LEN = 40
+
+/** Fallback when no error type can be inferred from the message or Error.name */
+const ERROR_TYPE_UNKNOWN = 'Unknown'
+
+/** Fallback when no component name can be inferred from cardId/stack */
+const COMPONENT_NAME_UNKNOWN = 'unknown'
+
+/**
+ * Regex matching the leading "<ErrorName>:" prefix produced by `Error.toString()`
+ * (e.g. "TypeError: Cannot read properties of undefined").
+ */
+const ERROR_NAME_PREFIX_RE = /^([A-Z][A-Za-z0-9]*Error):/
+
+/**
+ * Network-related error message fragments. Used as a heuristic when no
+ * `Error.name` is available (e.g. errors caught from raw fetch failures).
+ */
+const NETWORK_ERROR_FRAGMENTS = [
+  'Failed to fetch',
+  'NetworkError',
+  'net::ERR_',
+  'Load failed',
+] as const
+
+/**
+ * Extract a stable `error_type` dimension from either an Error instance or a
+ * raw message string. Order of preference:
+ *   1. `error.name` when an Error object was passed (most reliable)
+ *   2. Leading `<ErrorName>:` prefix on the message
+ *   3. Heuristic for network failures that surface without a typed Error
+ *   4. ERROR_TYPE_UNKNOWN
+ */
+function inferErrorType(detail: string, error?: unknown): string {
+  if (error && typeof error === 'object') {
+    const name = (error as { name?: unknown }).name
+    if (typeof name === 'string' && name.length > 0 && name !== 'Error') {
+      return name.slice(0, ERROR_TYPE_MAX_LEN)
+    }
+  }
+  const match = detail.match(ERROR_NAME_PREFIX_RE)
+  if (match) return match[1].slice(0, ERROR_TYPE_MAX_LEN)
+  for (const fragment of NETWORK_ERROR_FRAGMENTS) {
+    if (detail.includes(fragment)) return 'NetworkError'
+  }
+  return ERROR_TYPE_UNKNOWN
+}
+
+/**
+ * Regex matching the first React component name in a `componentStack` string
+ * produced by `ErrorInfo.componentStack`. Each frame starts with `\n    in
+ * <ComponentName>` (followed by " (created by …)" or file info).
+ */
+const REACT_COMPONENT_FRAME_RE = /\n\s*in\s+([A-Za-z0-9_$.]+)/
+
+/**
+ * Regex matching a JS stack frame's source file basename. Works for both
+ * Chromium (`at fn (https://host/path/Foo.tsx:12:3)`) and WebKit/Firefox
+ * (`fn@https://host/path/Foo.tsx:12:3`) stack formats.
+ */
+const STACK_FILE_BASENAME_RE = /\/([A-Za-z0-9_-]+)\.(?:tsx?|jsx?|mjs)[:?]/
+
+/**
+ * Extract a stable `component_name` dimension. Order of preference:
+ *   1. Explicit `cardId` (set by DynamicCardErrorBoundary — most precise)
+ *   2. First React frame from `componentStack` (set by error boundaries)
+ *   3. First source-file basename from `error.stack`
+ *   4. COMPONENT_NAME_UNKNOWN
+ */
+function inferComponentName(
+  cardId?: string,
+  componentStack?: string,
+  error?: unknown,
+): string {
+  if (cardId && cardId.length > 0) {
+    return cardId.slice(0, COMPONENT_NAME_MAX_LEN)
+  }
+  if (typeof componentStack === 'string') {
+    const match = componentStack.match(REACT_COMPONENT_FRAME_RE)
+    if (match) return match[1].slice(0, COMPONENT_NAME_MAX_LEN)
+  }
+  const stack = (error && typeof error === 'object')
+    ? (error as { stack?: unknown }).stack
+    : undefined
+  if (typeof stack === 'string') {
+    const match = stack.match(STACK_FILE_BASENAME_RE)
+    if (match) return match[1].slice(0, COMPONENT_NAME_MAX_LEN)
+  }
+  return COMPONENT_NAME_UNKNOWN
+}
+
+/**
+ * Optional context for `emitError`. Callers that have access to the original
+ * Error object and/or a React `componentStack` should pass them so the
+ * `error_type` and `component_name` dimensions can be inferred reliably.
+ */
+export interface EmitErrorExtra {
+  /** Original Error instance — supplies `error.name` and `error.stack`. */
+  error?: unknown
+  /** React `ErrorInfo.componentStack` — supplies the failing component name. */
+  componentStack?: string
+}
+
 /**
  * Dedup set for errors already reported by React error boundaries.
  * When an error is caught by DynamicCardErrorBoundary or AppErrorBoundary,
@@ -678,12 +788,24 @@ function isBrowserExtensionNoise(msg: string, reason: unknown): boolean {
   return false
 }
 
-export function emitError(category: string, detail: string, cardId?: string) {
+export function emitError(
+  category: string,
+  detail: string,
+  cardId?: string,
+  extra?: EmitErrorExtra,
+) {
+  const errorType = inferErrorType(detail, extra?.error)
+  const componentName = inferComponentName(cardId, extra?.componentStack, extra?.error)
   send('ksc_error', {
     error_code: category,
     error_category: category,
     error_detail: detail.slice(0, ERROR_DETAIL_MAX_LEN),
     error_page: window.location.pathname,
+    // New custom dimensions (issue #9861) — make ksc_error spikes diagnosable
+    // by surfacing the JS error class and the failing component without
+    // having to dig through error_detail strings in BigQuery.
+    error_type: errorType,
+    component_name: componentName,
     ...(cardId && { card_id: cardId }),
   })
 }
@@ -727,6 +849,57 @@ function checkChunkReloadRecovery() {
 // Reload throttle interval — must match ChunkErrorBoundary to prevent loops
 /** Global throttle for chunk-error auto-reload — 5s is fast enough for back-to-back deploys */
 const GLOBAL_RELOAD_THROTTLE_MS = 5_000
+
+/**
+ * Substrings that unambiguously indicate a stale-chunk / dynamic-import failure
+ * (i.e. messages where auto-reload is the right recovery action). These are the
+ * subset of `isChunkLoadMessage` patterns that cannot be confused with generic
+ * `fetch()` failures.
+ *
+ * The bare network patterns (`Failed to fetch`, `NetworkError`,
+ * `Unexpected token '<'`) are intentionally excluded — they match both real
+ * stale-chunk failures AND ordinary backend / network hiccups, and the latter
+ * far outnumber the former in the unhandledrejection global handler. Treating
+ * every backend hiccup as a chunk failure would (a) trigger a full page reload
+ * on transient API errors and (b) emit a misleading `chunk_load` ksc_error.
+ *
+ * Per `chunkErrors.test.ts`, `isChunkLoadMessage` retains its broad behaviour
+ * for the React `ChunkErrorBoundary` — that boundary only fires when React
+ * itself catches the error (i.e. when it really did come from `lazy(() =>
+ * import())`), so the broader match is safe there.
+ */
+const STRICT_CHUNK_INDICATORS = [
+  'dynamically imported module',
+  'Loading chunk',
+  'Loading CSS chunk',
+  'Unable to preload CSS',
+  'is not a valid JavaScript MIME type',
+  'Importing a module script failed',
+  'chunk may be stale',
+] as const
+
+/**
+ * Bare network-failure substrings that should be filtered as noise from the
+ * unhandledrejection handler. These messages arrive without any chunk-specific
+ * context (file URL, "dynamically imported module", etc.) and almost always
+ * come from regular `fetch()` calls whose error path was missed by the caller.
+ * Tracked separately by per-hook error handling — emitting them again from the
+ * global handler creates duplicate ksc_error events.
+ */
+const BARE_NETWORK_NOISE_SUBSTRINGS = [
+  'Failed to fetch',
+  'NetworkError',
+  'net::ERR_',
+] as const
+
+/** True when the message is a generic network failure with no chunk context. */
+function isBareNetworkNoise(msg: string): boolean {
+  if (!BARE_NETWORK_NOISE_SUBSTRINGS.some(s => msg.includes(s))) return false
+  // If the message also contains a strict chunk indicator, it's a real
+  // chunk-load failure (e.g. `Failed to fetch dynamically imported module: …`)
+  // and must NOT be filtered — chunk auto-reload should still run.
+  return !STRICT_CHUNK_INDICATORS.some(s => msg.includes(s))
+}
 
 /**
  * If the error message indicates a stale-chunk failure, auto-reload once.
@@ -779,6 +952,12 @@ export function startGlobalErrorTracking() {
       if (msg.includes('writeText') || msg.includes('clipboard') || msg.includes('copy')) return
       // Skip browser-extension promise rejections (wallet providers, etc.)
       if (isBrowserExtensionNoise(msg, event.reason)) return
+      // Skip transient network errors — tracked by individual hook error handling.
+      // MUST run before tryChunkReloadRecovery: bare `Failed to fetch` /
+      // `NetworkError` substrings also match `isChunkLoadMessage`, which would
+      // otherwise trigger an unwanted page reload AND emit a misleading
+      // `chunk_load` ksc_error for ordinary backend hiccups (issue #9866).
+      if (isBareNetworkNoise(msg)) return
       // Stale chunks can surface as unhandled rejections from dynamic import()
       if (tryChunkReloadRecovery(msg)) return
       // Skip AbortError / TimeoutError — expected when fetches are cancelled on unmount
@@ -807,7 +986,9 @@ export function startGlobalErrorTracking() {
       if (msg.includes('send was called before connect') || msg.includes('InvalidStateError')) return
       // Skip BackendUnavailableError on Netlify / console.kubestellar.io
       if (isNetlifyDeployment && msg.includes('Backend API is currently unavailable')) return
-      emitError('unhandled_rejection', msg)
+      // Skip WebGL context errors — benign GPU process resets
+      if (msg.includes('WebGL') || msg.includes('context lost')) return
+      emitError('unhandled_rejection', msg, undefined, { error: event.reason })
     } finally {
       isEmitting = false
     }
@@ -831,9 +1012,36 @@ export function startGlobalErrorTracking() {
         event.filename.startsWith('moz-extension://') ||
         event.filename.startsWith('safari-extension://')
       )) return
+      // ResizeObserver loop errors are benign browser noise — the W3C spec
+      // fires this when observations can't be delivered in a single animation
+      // frame. Multiple cards on the dashboard use ResizeObserver, and layout
+      // shifts during initial render or window resize trigger this harmlessly.
+      if (event.message.includes('ResizeObserver loop')) return
+      // WebGL context lost/restored events fire when the GPU process resets
+      // (tab backgrounded, driver update, resource pressure). The globe
+      // animation and game cards handle this gracefully via Three.js internals.
+      if (
+        event.message.includes('WebGL') ||
+        event.message.includes('context lost') ||
+        event.message.includes('GL_INVALID')
+      ) return
+      // Canvas errors from 2D/WebGL rendering (toDataURL on tainted canvas,
+      // drawing to a canvas whose context was lost, etc.) are not actionable.
+      if (event.message.includes('canvas') || event.message.includes('CanvasRenderingContext')) return
+      // Network errors surfacing as runtime errors (e.g. image/script load
+      // failures due to transient connectivity). These are tracked separately
+      // via fetch error handling in individual hooks.
+      if (
+        event.message.includes('Failed to fetch') ||
+        event.message.includes('NetworkError') ||
+        event.message.includes('net::ERR_')
+      ) return
+      // Chrome fires "Non-Error promise rejection captured" for non-Error
+      // objects thrown in promise chains — typically from third-party scripts.
+      if (event.message.includes('Non-Error')) return
       // Stale chunks can surface as runtime errors (Safari: "Importing a module script failed")
       if (tryChunkReloadRecovery(event.message)) return
-      emitError('runtime', event.message)
+      emitError('runtime', event.message, undefined, { error: event.error })
     } finally {
       isEmitting = false
     }

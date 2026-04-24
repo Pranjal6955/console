@@ -334,6 +334,27 @@ describe('useMarketplace', () => {
     expect(result.current.allItems[0].tags).not.toContain('help-wanted')
   })
 
+  it('maps cncf-flux to flux_status during reconcile', async () => {
+    const items = [
+      makeItem({
+        id: 'cncf-flux',
+        status: 'help-wanted',
+        tags: ['cncf', 'help-wanted'],
+      }),
+    ]
+    mockIsCardTypeRegistered.mockImplementation((t: string) => t === 'flux_status')
+    seedCache(items)
+
+    const { result } = renderHook(() => useMarketplace())
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    expect(result.current.allItems[0].status).toBe('available')
+    expect(result.current.allItems[0].tags).not.toContain('help-wanted')
+  })
+
   it('does not promote help-wanted item when card type is NOT registered', async () => {
     const items = [
       makeItem({

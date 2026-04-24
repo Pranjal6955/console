@@ -47,6 +47,7 @@ import {
 import {
   useServiceExports,
   useServiceImports } from '../../hooks/useMCS'
+import { useFluxStatus } from '../../components/cards/flux_status/useFluxStatus'
 
 // ============================================================================
 // Wrapper hooks that convert params object to positional args
@@ -1011,6 +1012,22 @@ function useKustomizationStatus() {
   return useDemoDataHook(DEMO_KUSTOMIZATION_STATUS)
 }
 
+function useUnifiedFluxStatus() {
+  const result = useFluxStatus()
+  const data = [
+    ...result.data.resources.sources,
+    ...result.data.resources.kustomizations,
+    ...result.data.resources.helmReleases,
+  ]
+
+  return {
+    data,
+    isLoading: result.showSkeleton,
+    error: result.error ? new Error('Failed to fetch Flux status') : null,
+    refetch: () => {},
+  }
+}
+
 function useProviderHealth() {
   return useDemoDataHook(DEMO_PROVIDER_HEALTH)
 }
@@ -1196,6 +1213,7 @@ export function registerUnifiedHooks(): void {
   registerDataHook('useArgoCDSyncStatus', useArgoCDSyncStatus)
   registerDataHook('useGatewayStatus', useGatewayStatus)
   registerDataHook('useKustomizationStatus', useKustomizationStatus)
+  registerDataHook('useFluxStatus', useUnifiedFluxStatus)
   registerDataHook('useProviderHealth', useProviderHealth)
   registerDataHook('useUpgradeStatus', useUpgradeStatus)
   registerDataHook('useProwStatus', useProwStatus)

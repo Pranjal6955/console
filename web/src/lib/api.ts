@@ -7,7 +7,7 @@ import {
   DEMO_TOKEN_VALUE,
   FETCH_DEFAULT_TIMEOUT_MS,
 } from './constants'
-import { emitSessionExpired } from './analytics'
+import { emitError, emitSessionExpired } from './analytics'
 
 const API_BASE = ''
 const DEFAULT_TIMEOUT = MCP_HOOK_TIMEOUT_MS
@@ -21,7 +21,7 @@ const TOKEN_REFRESH_HEADER = 'X-Token-Refresh' // server signals when token shou
 const AUTH_LOGOUT_ENDPOINT = '/auth/logout'
 
 // Public API paths that don't require authentication (served without JWT on the backend)
-const PUBLIC_API_PREFIXES = ['/api/missions/browse', '/api/missions/file']
+const PUBLIC_API_PREFIXES = ['/api/missions/browse', '/api/missions/file', '/api/compliance/']
 
 // Error class for unauthenticated requests
 export class UnauthenticatedError extends Error {
@@ -244,7 +244,7 @@ export async function checkBackendAvailability(forceCheck = false): Promise<bool
           available: backendAvailable,
           timestamp: backendLastCheckTime,
         }))
-      } catch { /* ignore */ }
+      } catch (e) { console.warn('[api] failed to cache backend status:', e) }
       return backendAvailable
     } catch {
       backendAvailable = false
@@ -324,7 +324,7 @@ function markBackendFailure(): void {
   // Persisting false causes fresh page loads to inherit stale "backend down" state.
   try {
     localStorage.removeItem(BACKEND_STATUS_KEY)
-  } catch { /* ignore */ }
+  } catch (e) { console.warn('[api] failed to clear backend status cache:', e) }
 }
 
 function markBackendSuccess(): void {
@@ -335,7 +335,7 @@ function markBackendSuccess(): void {
       available: true,
       timestamp: backendLastCheckTime,
     }))
-  } catch { /* ignore */ }
+  } catch (e) { console.warn('[api] failed to cache backend success:', e) }
 }
 
 /**
@@ -454,6 +454,7 @@ class ApiClient {
     // Skip API calls to protected endpoints when not authenticated
     const isPublicPath = PUBLIC_API_PREFIXES.some(prefix => path.startsWith(prefix))
     if (options?.requiresAuth !== false && !isPublicPath && !this.hasToken()) {
+      emitError('auth', 'No authentication token available')
       throw new UnauthenticatedError()
     }
 
@@ -676,6 +677,27 @@ export const api = new ApiClient()
  *
  * Existing callers only need to change `fetch(url, init)` -> `authFetch(url, init)`.
  */
+/**
+ * Safely parse a Response as JSON, guarding against HTML responses.
+ *
+ * On Netlify, unmatched API routes fall through to the SPA catch-all which
+ * returns index.html (200 OK, text/html). Calling `.json()` on that response
+ * throws "Unexpected token '<'" (#9797). This helper checks the Content-Type
+ * header first and throws a descriptive error instead of a cryptic parse error.
+ *
+ * Usage:
+ *   const data = await safeJson<MyType>(response)
+ */
+export async function safeJson<T = unknown>(response: Response): Promise<T> {
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      `Expected JSON response but received ${contentType || 'unknown content-type'} (status ${response.status})`,
+    )
+  }
+  return response.json() as Promise<T>
+}
+
 export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const token = localStorage.getItem(STORAGE_KEY_TOKEN)
   const headers = new Headers(init?.headers)
