@@ -11,10 +11,9 @@ import (
 )
 
 const (
-	jaegerDefaultNamespace = "jaeger"
-	jaegerQueryDeployment  = "jaeger-query"
-	jaegerAllInOne         = "jaeger-all-in-one"
-	jaegerQueryPort        = 16686
+	jaegerQueryDeployment = "jaeger-query"
+	jaegerAllInOne        = "jaeger-all-in-one"
+	jaegerQueryPort       = 16686
 )
 
 type jaegerStatusResponse struct {
