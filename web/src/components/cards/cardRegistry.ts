@@ -327,6 +327,8 @@ const FluidStatus = safeLazy(() => import('./fluid_status'), 'FluidStatus')
 const JaegerStatus = safeLazy(() => import('./jaeger_status'), 'JaegerStatus')
 // CubeFS distributed file system card
 const CubefsStatus = safeLazy(() => import('./cubefs_status'), 'CubefsStatus')
+// Harbor registry card
+const HarborStatus = safeLazy(() => import('./harbor_status'), 'HarborStatus')
 // Inspektor Gadget cards
 const NetworkTraceCard = safeLazy(() => import('./gadget/NetworkTraceCard'), 'NetworkTraceCard')
 const DNSTraceCard = safeLazy(() => import('./gadget/DNSTraceCard'), 'DNSTraceCard')
@@ -712,6 +714,8 @@ const RAW_CARD_COMPONENTS: Record<string, CardComponent> = {
   fluid_status: FluidStatus,
   // CubeFS distributed file system
   cubefs_status: CubefsStatus,
+  // Harbor registry
+  harbor_status: HarborStatus,
   // KubeRay fleet monitoring
   kuberay_fleet: KubeRayFleet,
   // SLO compliance tracking
@@ -926,6 +930,8 @@ export const DEMO_DATA_CARDS = new Set([
   'fluid_status',
   // CubeFS distributed file system - demo until CubeFS is installed
   'cubefs_status',
+  // Harbor registry - demo until Harbor is installed
+  'harbor_status',
 ])
 
 /**
@@ -1156,6 +1162,8 @@ const CARD_CHUNK_PRELOADERS: Record<string, () => Promise<unknown>> = {
   fluid_status: () => import('./fluid_status'),
   // CubeFS distributed file system
   cubefs_status: () => import('./cubefs_status'),
+  // Harbor registry
+  harbor_status: () => import('./harbor_status'),
   kuberay_fleet: () => import('./kuberay_fleet'),
   slo_compliance: () => import('./slo_compliance'),
   failover_timeline: () => import('./failover_timeline'),
@@ -1418,6 +1426,9 @@ export const CARD_DEFAULT_WIDTHS: Record<string, number> = {
 
   // Workload Deployment - wide for workload list
   workload_deployment: 6,
+
+  // Provisioning
+  harbor_status: 6,
 
   // Cluster Groups card
   cluster_groups: 4,
