@@ -323,6 +323,8 @@ const KnativeStatus = safeLazy(() => import('./knative_status'), 'KnativeStatus'
 const KServeStatus = safeLazy(() => import('./kserve_status'), 'KServeStatus')
 // Fluid dataset caching card
 const FluidStatus = safeLazy(() => import('./fluid_status'), 'FluidStatus')
+// Jaeger Tracing monitoring card
+const JaegerStatus = safeLazy(() => import('./jaeger_status'), 'JaegerStatus')
 // Inspektor Gadget cards
 const NetworkTraceCard = safeLazy(() => import('./gadget/NetworkTraceCard'), 'NetworkTraceCard')
 const DNSTraceCard = safeLazy(() => import('./gadget/DNSTraceCard'), 'DNSTraceCard')
@@ -726,6 +728,7 @@ const RAW_CARD_COMPONENTS: Record<string, CardComponent> = {
   dns_trace: DNSTraceCard,
   process_trace: ProcessTraceCard,
   security_audit: SecurityAuditCard,
+  jaeger_status: JaegerStatus,
 
   // Drasi reactive pipeline cards
   drasi_reactive_graph: DrasiReactiveGraph,
@@ -1117,6 +1120,8 @@ const CARD_CHUNK_PRELOADERS: Record<string, () => Promise<unknown>> = {
   kagent_topology: () => import('./kagent'),
   // Crossplane cards
   crossplane_managed_resources: () => import('./crossplane-status'),
+  // Jaeger Tracing
+  jaeger_status: () => import('./jaeger_status'),
   // Cloud Native Buildpacks
   buildpacks_status: () => import('./buildpacks-status'),
   // KEDA
