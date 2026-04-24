@@ -11,28 +11,48 @@ vi.mock('react-i18next', () => ({
 
 // Mock custom hooks
 const mockUseCachedJaegerStatus = vi.fn()
-vi.mock('../../../hooks/useCachedData', () => ({
+vi.mock('../../../../hooks/useCachedData', () => ({
     useCachedJaegerStatus: () => mockUseCachedJaegerStatus(),
 }))
 
-vi.mock('../../../hooks/useGlobalFilters', () => ({
+vi.mock('../../../../hooks/useGlobalFilters', () => ({
     useGlobalFilters: () => ({ selectedClusters: [] }),
 }))
 
-vi.mock('../../../hooks/useDrillDown', () => ({
+vi.mock('../../../../hooks/useDrillDown', () => ({
     useDrillDownActions: () => ({ drillToNode: vi.fn() }),
 }))
 
+vi.mock('../../../../hooks/useCardLoadingState', () => ({
+    useCardLoadingState: () => ({
+        showSkeleton: false,
+        showSpinner: false,
+        showEmpty: false,
+        showError: false,
+        isInteractive: true,
+    }),
+}))
+
+vi.mock('../../../../hooks/useCardData', () => ({
+    useCardData: () => ({
+        data: null,
+        error: null,
+        isLoading: false,
+        isRefreshing: false,
+        refetch: vi.fn(),
+    }),
+}))
+
 // Mock CardControls and other UI components to avoid dependency issues
-vi.mock('../../ui/CardControls', () => ({
+vi.mock('../../../ui/CardControls', () => ({
     CardControls: () => <div data-testid="card-controls" />,
 }))
 
-vi.mock('../../ui/StatusBadge', () => ({
+vi.mock('../../../ui/StatusBadge', () => ({
     StatusBadge: ({ children }: { children: React.ReactNode }) => <span data-testid="status-badge">{children}</span>,
 }))
 
-vi.mock('../../ui/RefreshIndicator', () => ({
+vi.mock('../../../ui/RefreshIndicator', () => ({
     RefreshIndicator: () => <div data-testid="refresh-indicator" />,
 }))
 
