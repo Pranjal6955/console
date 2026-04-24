@@ -44,7 +44,8 @@ export const JaegerStatus: React.FC<CardComponentProps> = () => {
     const filteredCollectors = React.useMemo(() => {
         const items = data?.collectors?.items || []
         if (selectedClusters.length === 0) return items
-        return items.filter((c: JaegerCollector) => !c.cluster || selectedClusters.includes(c.cluster))
+        if (selectedClusters.includes('__none__')) return []
+        return items.filter((c: JaegerCollector) => Boolean(c.cluster) && selectedClusters.includes(c.cluster))
     }, [data?.collectors?.items, selectedClusters])
 
     const {
