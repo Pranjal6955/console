@@ -34,7 +34,10 @@ func TestAPIContract_Version(t *testing.T) {
 	})
 
 	req := httptest.NewRequest("GET", "/api/version", nil)
-	resp, _ := app.Test(req)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -65,7 +68,10 @@ func TestAPIContract_Me(t *testing.T) {
 	})
 
 	req := httptest.NewRequest("GET", "/api/me", nil)
-	resp, _ := app.Test(req)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -108,7 +114,10 @@ func TestAPIContract_Health(t *testing.T) {
 	})
 
 	req := httptest.NewRequest("GET", "/health", nil)
-	resp, _ := app.Test(req)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
