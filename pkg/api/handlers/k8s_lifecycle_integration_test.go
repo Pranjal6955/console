@@ -66,8 +66,11 @@ func TestK8sLifecycle_Integration(t *testing.T) {
 
 	// Verify update is reflected
 	ClearSSECache()
-	resp2, _ := env.App.Test(req, 5000)
-	body2, _ := io.ReadAll(resp2.Body)
+	resp2, err := env.App.Test(req, 5000)
+	require.NoError(t, err)
+	require.NotNil(t, resp2)
+	body2, err := io.ReadAll(resp2.Body)
+	require.NoError(t, err)
 	assert.Contains(t, string(body2), "integration")
 
 	// 4. Delete - Pod removed from API
@@ -76,8 +79,11 @@ func TestK8sLifecycle_Integration(t *testing.T) {
 
 	// Verify deletion
 	ClearSSECache()
-	resp3, _ := env.App.Test(req, 5000)
-	body3, _ := io.ReadAll(resp3.Body)
+	resp3, err := env.App.Test(req, 5000)
+	require.NoError(t, err)
+	require.NotNil(t, resp3)
+	body3, err := io.ReadAll(resp3.Body)
+	require.NoError(t, err)
 	assert.NotContains(t, string(body3), "test-pod")
 }
 

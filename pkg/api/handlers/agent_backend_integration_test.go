@@ -112,11 +112,14 @@ func TestAgentBackend_Integration_ChatProxy(t *testing.T) {
 
 	resp, err := app.Test(req, 5000)
 	require.NoError(t, err)
+	require.NotNil(t, resp)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// 3. Verify SSE response stream
 	// Note: In integration we check the raw body for the SSE format
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
 	respStr := string(respBody)
 	assert.Contains(t, respStr, "data: {\"chunk\": \"Hello\"}")
 	assert.Contains(t, respStr, "data: {\"chunk\": \"World\"}")

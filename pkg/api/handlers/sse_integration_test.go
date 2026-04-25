@@ -106,8 +106,12 @@ func TestSSE_Integration_MultiCluster(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/mcp/events/warnings/stream", nil)
 	resp, err := env.App.Test(req, 5000)
 	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
 	bodyStr := string(body)
 
 	assert.Contains(t, bodyStr, "c1-reason")

@@ -19,7 +19,7 @@ import (
 )
 
 // TestSettings_Integration_RoundTrip verifies issue #4.3: Settings persistence round-trip.
-// It exercises the full flow from API request (PUT) to disk persistence (JSON) 
+// It exercises the full flow from API request (PUT) to disk persistence (JSON)
 // and back through the API (GET).
 func TestSettings_Integration_RoundTrip(t *testing.T) {
 	// Setup real SettingsManager pointing to temp files
@@ -44,13 +44,13 @@ func TestSettings_Integration_RoundTrip(t *testing.T) {
 
 	app := fiber.New()
 	handler := NewSettingsHandler(manager, mockStore)
-	
+
 	// Middleware to inject admin user
 	app.Use(func(c *fiber.Ctx) error {
 		c.Locals("userID", adminID)
 		return c.Next()
 	})
-	
+
 	app.Get("/api/settings", handler.GetSettings)
 	app.Put("/api/settings", handler.SaveSettings)
 
@@ -84,7 +84,7 @@ func TestSettings_Integration_RoundTrip(t *testing.T) {
 
 	// 3. Final GET - should return updated values from disk
 	// We call manager.Load() to simulate a server restart/new request cycle
-	// although in a real app the manager keeps state in memory; but Load() 
+	// although in a real app the manager keeps state in memory; but Load()
 	// verifies the disk content is valid.
 	err = manager.Load()
 	require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestSettings_Integration_ExportImport(t *testing.T) {
 		c.Locals("userID", adminID)
 		return c.Next()
 	})
-	
+
 	app.Post("/api/settings/export", handler.ExportSettings)
 	app.Post("/api/settings/import", handler.ImportSettings)
 
@@ -149,6 +149,9 @@ func TestSettings_Integration_ExportImport(t *testing.T) {
 	assert.Equal(t, 200, respImport.StatusCode)
 
 	// 5. Verify
-	current, _ := manager.GetAll()
+	current, err := manager.GetAll()
+	require.NoError(t, err)
+	require.NotNil(t, current)
 	assert.Equal(t, "custom", current.Theme)
+
 }
