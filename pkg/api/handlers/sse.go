@@ -233,7 +233,17 @@ func startSSECacheEvictor() {
 	})
 }
 
+// ClearSSECache removes all entries from the SSE response cache.
+// Intended for testing environments where data changes more frequently
+// than the cache TTL (#6956).
+func ClearSSECache() {
+	sseCacheMu.Lock()
+	defer sseCacheMu.Unlock()
+	sseCache = make(map[string]*sseCacheEntry)
+}
+
 // StopSSECacheEvictor signals the background evictor goroutine to exit.
+
 // Safe to call multiple times. Intended for server shutdown and tests (#6956).
 func StopSSECacheEvictor() {
 	select {
