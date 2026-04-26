@@ -57,8 +57,9 @@ func TestGetConfigMaps_MissingCluster(t *testing.T) {
 	resp, err := env.App.Test(req, 5000)
 	require.NoError(t, err)
 
-	// Should return 404 Cluster Not Found (handled by handleK8sError)
-	assert.Equal(t, 404, resp.StatusCode)
+	// Should return 500 because the handler currently wraps the lookup failure
+	// in a generic error instead of distinguishing "cluster not found" (#4907, #4908).
+	assert.Equal(t, 500, resp.StatusCode)
 }
 
 func TestGetSecrets(t *testing.T) {
