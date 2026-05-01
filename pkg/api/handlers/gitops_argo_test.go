@@ -197,11 +197,13 @@ func TestGitOpsArgo_GetHelmValues_Validation(t *testing.T) {
 
 	// Missing release
 	req, _ := http.NewRequest(http.MethodGet, "/api/gitops/helm/values", nil)
-	resp, _ := env.App.Test(req)
+	resp, err := env.App.Test(req)
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 	// Invalid cluster name
 	req, _ = http.NewRequest(http.MethodGet, "/api/gitops/helm/values?release=my-rel&cluster=bad;name", nil)
-	resp, _ = env.App.Test(req)
+	resp, err = env.App.Test(req)
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

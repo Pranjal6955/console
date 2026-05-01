@@ -104,6 +104,7 @@ func TestGitOpsOperators_ListOperators_Validation(t *testing.T) {
 
 	// Invalid cluster name
 	req, _ := http.NewRequest(http.MethodGet, "/api/gitops/operators?cluster=bad;name", nil)
-	resp, _ := env.App.Test(req)
+	resp, err := env.App.Test(req)
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

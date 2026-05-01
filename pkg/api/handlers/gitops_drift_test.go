@@ -46,13 +46,15 @@ func TestGitOpsDrift_ListDrifts(t *testing.T) {
 
 	// Test filter by cluster
 	httpReq, _ = http.NewRequest(http.MethodGet, "/api/gitops/drifts?cluster=test-cluster", nil)
-	resp, _ = env.App.Test(httpReq)
-	json.NewDecoder(resp.Body).Decode(&body)
+	resp, err = env.App.Test(httpReq)
+	require.NoError(t, err)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Len(t, body.Drifts, 1)
 
 	httpReq, _ = http.NewRequest(http.MethodGet, "/api/gitops/drifts?cluster=other-cluster", nil)
-	resp, _ = env.App.Test(httpReq)
-	json.NewDecoder(resp.Body).Decode(&body)
+	resp, err = env.App.Test(httpReq)
+	require.NoError(t, err)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Len(t, body.Drifts, 0)
 }
 
