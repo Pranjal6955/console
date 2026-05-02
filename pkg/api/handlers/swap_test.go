@@ -30,7 +30,7 @@ func TestSwapHandlers(t *testing.T) {
 		expected := []models.PendingSwap{
 			{ID: swapID, UserID: testAdminUserID, CardID: cardID},
 		}
-		mockStore.On("GetUserPendingSwaps", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(expected, nil)
+		mockStore.On("GetUserPendingSwaps", testAdminUserID, 0, 0).Return(expected, nil)
 
 		app := fiber.New()
 		app.Get("/api/swaps", func(c *fiber.Ctx) error {
@@ -58,8 +58,8 @@ func TestSwapHandlers(t *testing.T) {
 		mockStore.ExpectedCalls = nil
 		
 		swap := &models.PendingSwap{ID: swapID, UserID: testAdminUserID}
-		mockStore.On("GetPendingSwap", mock.Anything, swapID).Return(swap, nil)
-		mockStore.On("SnoozeSwap", mock.Anything, swapID, mock.Anything).Return(nil)
+		mockStore.On("GetPendingSwap", swapID).Return(swap, nil)
+		mockStore.On("SnoozeSwap", swapID, mock.Anything).Return(nil)
 
 		app := fiber.New()
 		app.Post("/api/swaps/:id/snooze", func(c *fiber.Ctx) error {
@@ -85,11 +85,11 @@ func TestSwapHandlers(t *testing.T) {
 		}
 		card := &models.Card{ID: cardID, CardType: "old-type"}
 		
-		mockStore.On("GetPendingSwap", mock.Anything, swapID).Return(swap, nil)
-		mockStore.On("GetCard", mock.Anything, cardID).Return(card, nil)
-		mockStore.On("AddCardHistory", mock.Anything, mock.Anything).Return(nil)
-		mockStore.On("UpdateCard", mock.Anything, mock.Anything).Return(nil)
-		mockStore.On("UpdateSwapStatus", mock.Anything, swapID, models.SwapStatusCompleted).Return(nil)
+		mockStore.On("GetPendingSwap", swapID).Return(swap, nil)
+		mockStore.On("GetCard", cardID).Return(card, nil)
+		mockStore.On("AddCardHistory", mock.Anything).Return(nil)
+		mockStore.On("UpdateCard", mock.Anything).Return(nil)
+		mockStore.On("UpdateSwapStatus", swapID, models.SwapStatusCompleted).Return(nil)
 
 		app := fiber.New()
 		app.Post("/api/swaps/:id/execute", func(c *fiber.Ctx) error {
@@ -108,8 +108,8 @@ func TestSwapHandlers(t *testing.T) {
 		mockStore.ExpectedCalls = nil
 		
 		swap := &models.PendingSwap{ID: swapID, UserID: testAdminUserID}
-		mockStore.On("GetPendingSwap", mock.Anything, swapID).Return(swap, nil)
-		mockStore.On("UpdateSwapStatus", mock.Anything, swapID, models.SwapStatusCancelled).Return(nil)
+		mockStore.On("GetPendingSwap", swapID).Return(swap, nil)
+		mockStore.On("UpdateSwapStatus", swapID, models.SwapStatusCancelled).Return(nil)
 
 		app := fiber.New()
 		app.Post("/api/swaps/:id/cancel", func(c *fiber.Ctx) error {

@@ -76,7 +76,13 @@ func (m *MockStore) CreateDashboard(ctx context.Context, dashboard *models.Dashb
 func (m *MockStore) UpdateDashboard(ctx context.Context, dashboard *models.Dashboard) error               { return nil }
 func (m *MockStore) DeleteDashboard(ctx context.Context, id uuid.UUID) error                              { return nil }
 
-func (m *MockStore) GetCard(ctx context.Context, id uuid.UUID) (*models.Card, error)                     { return nil, nil }
+func (m *MockStore) GetCard(ctx context.Context, id uuid.UUID) (*models.Card, error) {
+	args := m.Called(id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Card), args.Error(1)
+}
 func (m *MockStore) GetDashboardCards(ctx context.Context, dashboardID uuid.UUID) ([]models.Card, error) { return nil, nil }
 
 func (m *MockStore) CreateCard(ctx context.Context, card *models.Card) error { return nil }
@@ -96,9 +102,20 @@ func (m *MockStore) CreateCardWithLimit(ctx context.Context, card *models.Card, 
 	return nil
 }
 
-func (m *MockStore) UpdateCard(ctx context.Context, card *models.Card) error                     { return nil }
-func (m *MockStore) DeleteCard(ctx context.Context, id uuid.UUID) error                          { return nil }
-func (m *MockStore) UpdateCardFocus(ctx context.Context, cardID uuid.UUID, summary string) error { return nil }
+func (m *MockStore) UpdateCard(ctx context.Context, card *models.Card) error {
+	args := m.Called(card)
+	return args.Error(0)
+}
+
+func (m *MockStore) DeleteCard(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(id)
+	return args.Error(0)
+}
+
+func (m *MockStore) UpdateCardFocus(ctx context.Context, cardID uuid.UUID, summary string) error {
+	args := m.Called(cardID, summary)
+	return args.Error(0)
+}
 
 // MoveCardWithLimit is overridable so tests can exercise both the success
 // path and the ErrDashboardCardLimitReached branch of the atomic move.
@@ -115,21 +132,52 @@ func (m *MockStore) MoveCardWithLimit(ctx context.Context, cardID uuid.UUID, tar
 	return nil
 }
 
-func (m *MockStore) AddCardHistory(ctx context.Context, history *models.CardHistory) error { return nil }
+func (m *MockStore) AddCardHistory(ctx context.Context, history *models.CardHistory) error {
+	args := m.Called(history)
+	return args.Error(0)
+}
 func (m *MockStore) GetUserCardHistory(ctx context.Context, userID uuid.UUID, limit int) ([]models.CardHistory, error) {
 	return nil, nil
 }
 
-func (m *MockStore) GetPendingSwap(ctx context.Context, id uuid.UUID) (*models.PendingSwap, error) { return nil, nil }
+func (m *MockStore) GetPendingSwap(ctx context.Context, id uuid.UUID) (*models.PendingSwap, error) {
+	args := m.Called(id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.PendingSwap), args.Error(1)
+}
+
 func (m *MockStore) GetUserPendingSwaps(ctx context.Context, userID uuid.UUID, limit, offset int) ([]models.PendingSwap, error) {
-	return nil, nil
+	args := m.Called(userID, limit, offset)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]models.PendingSwap), args.Error(1)
 }
+
 func (m *MockStore) GetDueSwaps(ctx context.Context, limit, offset int) ([]models.PendingSwap, error) {
-	return nil, nil
+	args := m.Called(limit, offset)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]models.PendingSwap), args.Error(1)
 }
-func (m *MockStore) CreatePendingSwap(ctx context.Context, swap *models.PendingSwap) error              { return nil }
-func (m *MockStore) UpdateSwapStatus(ctx context.Context, id uuid.UUID, status models.SwapStatus) error { return nil }
-func (m *MockStore) SnoozeSwap(ctx context.Context, id uuid.UUID, newSwapAt time.Time) error            { return nil }
+
+func (m *MockStore) CreatePendingSwap(ctx context.Context, swap *models.PendingSwap) error {
+	args := m.Called(swap)
+	return args.Error(0)
+}
+
+func (m *MockStore) UpdateSwapStatus(ctx context.Context, id uuid.UUID, status models.SwapStatus) error {
+	args := m.Called(id, status)
+	return args.Error(0)
+}
+
+func (m *MockStore) SnoozeSwap(ctx context.Context, id uuid.UUID, newSwapAt time.Time) error {
+	args := m.Called(id, newSwapAt)
+	return args.Error(0)
+}
 
 func (m *MockStore) RecordEvent(ctx context.Context, event *models.UserEvent) error { return nil }
 func (m *MockStore) GetRecentEvents(ctx context.Context, userID uuid.UUID, since time.Duration, limit, offset int) ([]models.UserEvent, error) {
