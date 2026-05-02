@@ -133,11 +133,13 @@ func TestUpdateCard_InvalidCardID(t *testing.T) {
 
 func TestUpdateCard_NotFound(t *testing.T) {
 	userID := uuid.New()
-	app, _, handler := setupCardTest(t, userID)
+	app, mockStore, handler := setupCardTest(t, userID)
 	app.Put("/api/cards/:id", handler.UpdateCard)
 
 	// MockStore.GetCard returns nil — triggers "Card not found"
 	cardID := uuid.New()
+	mockStore.On("GetCard", cardID).Return(nil, nil)
+
 	body := `{"position":{"x":1,"y":1,"w":4,"h":3}}`
 	req, err := http.NewRequest("PUT", "/api/cards/"+cardID.String(), strings.NewReader(body))
 	require.NoError(t, err)
@@ -165,10 +167,12 @@ func TestDeleteCard_InvalidID(t *testing.T) {
 
 func TestDeleteCard_NotFound(t *testing.T) {
 	userID := uuid.New()
-	app, _, handler := setupCardTest(t, userID)
+	app, mockStore, handler := setupCardTest(t, userID)
 	app.Delete("/api/cards/:id", handler.DeleteCard)
 
 	cardID := uuid.New()
+	mockStore.On("GetCard", cardID).Return(nil, nil)
+
 	req, err := http.NewRequest("DELETE", "/api/cards/"+cardID.String(), nil)
 	require.NoError(t, err)
 
