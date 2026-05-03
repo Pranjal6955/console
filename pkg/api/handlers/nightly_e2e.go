@@ -712,6 +712,11 @@ func parseImagesFromYAML(content string) map[string]string {
 
 	// Pattern 1: direct image references
 	for _, match := range imageRe.FindAllStringSubmatch(content, -1) {
+		// Skip commented-out YAML lines
+		line := match[0]
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
 		images[match[1]] = match[2]
 	}
 
