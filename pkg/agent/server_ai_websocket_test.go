@@ -32,6 +32,9 @@ func TestServer_HandleWebSocket_Upgrade(t *testing.T) {
 	}
 	defer conn.Close()
 
+	if resp == nil {
+		t.Fatalf("WebSocket dial succeeded but response was nil")
+	}
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Errorf("Expected status 101, got %d", resp.StatusCode)
 	}
@@ -73,6 +76,9 @@ func TestServer_HandleWebSocket_TokenRequired(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected dial to fail without token")
 	}
+	if resp == nil {
+		t.Fatalf("WebSocket dial failed with error: %v (response was nil)", err)
+	}
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("Expected 401 Unauthorized, got %d", resp.StatusCode)
 	}
@@ -82,6 +88,9 @@ func TestServer_HandleWebSocket_TokenRequired(t *testing.T) {
 	conn, resp, err := dialer.Dial(wsURLWithToken, nil)
 	if err != nil {
 		t.Fatalf("WebSocket dial with token failed: %v", err)
+	}
+	if resp == nil {
+		t.Fatalf("WebSocket dial with token succeeded but response was nil")
 	}
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Errorf("Expected status 101, got %d", resp.StatusCode)

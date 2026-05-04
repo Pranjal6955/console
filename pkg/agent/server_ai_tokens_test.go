@@ -105,7 +105,7 @@ func TestExtractCommands(t *testing.T) {
 		},
 		{
 			"Bare command",
-			"You should run kubectl describe pod foo to see details.",
+			"You should run\nkubectl describe pod foo\nto see details.",
 			[]string{"kubectl describe pod foo"},
 		},
 		{

@@ -362,7 +362,7 @@ func TestLoadFromDisk_CorruptedFile(t *testing.T) {
 
 	// Write garbage to the metrics history file
 	filePath := filepath.Join(tmpDir, metricsHistoryFile)
-	if err := os.WriteFile(filePath, []byte("not valid json{{{"), metricsFileMode); err != nil {
+	if err := os.WriteFile(filePath, []byte("invalid json{{{"), metricsFileMode); err != nil {
 		t.Fatalf("failed to write corrupted file: %v", err)
 	}
 
