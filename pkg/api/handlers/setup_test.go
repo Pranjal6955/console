@@ -95,7 +95,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	// Register permissive mocks so TestClusterGroupsCRUD doesn't panic when
 	// the handler calls Save/Delete/List. Individual tests can override with
 	// an explicit expectation to assert specific persistence behavior.
-	mockStore.On("SaveClusterGroup", mock.Anything).Return(nil).Maybe()
+	mockStore.On("SaveClusterGroup", mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockStore.On("DeleteClusterGroup", mock.Anything).Return(nil).Maybe()
 	mockStore.On("ListClusterGroups").Return(map[string][]byte{}, nil).Maybe()
 

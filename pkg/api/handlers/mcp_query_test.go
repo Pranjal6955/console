@@ -23,7 +23,9 @@ func TestQueryAllClusters_Success(t *testing.T) {
 	results, errTracker := queryAllClusters(context.Background(), clusters, queryFn)
 
 	assert.ElementsMatch(t, []string{"cluster-1-result", "cluster-2-result"}, results)
-	assert.Empty(t, errTracker.errors)
+	if errTracker != nil {
+		assert.Empty(t, errTracker.errors)
+	}
 }
 
 func TestQueryAllClusters_WithErrors(t *testing.T) {
@@ -43,8 +45,12 @@ func TestQueryAllClusters_WithErrors(t *testing.T) {
 	results, errTracker := queryAllClusters(context.Background(), clusters, queryFn)
 
 	assert.ElementsMatch(t, []string{"cluster-1-result", "cluster-3-result"}, results)
-	assert.Len(t, errTracker.errors, 1)
-	assert.Equal(t, "cluster-2", errTracker.errors[0].Cluster)
+	if errTracker != nil {
+		assert.Len(t, errTracker.errors, 1)
+		assert.Equal(t, "cluster-2", errTracker.errors[0].Cluster)
+	} else {
+		t.Fatal("errTracker is nil")
+	}
 }
 
 func TestQueryAllClusters_Timeout(t *testing.T) {
@@ -70,14 +76,22 @@ func TestQueryAllClusters_Timeout(t *testing.T) {
 	results, errTracker := queryAllClustersWithTimeout(context.Background(), clusters, timeout, queryFn)
 
 	assert.ElementsMatch(t, []string{"cluster-1-result"}, results)
-	assert.Len(t, errTracker.errors, 1)
-	assert.Equal(t, "timeout", errTracker.errors[0].ErrorType)
+	if errTracker != nil {
+		assert.Len(t, errTracker.errors, 1)
+		assert.Equal(t, "timeout", errTracker.errors[0].ErrorType)
+	} else {
+		t.Fatal("errTracker is nil")
+	}
 }
 
 func TestQueryAllClusters_EmptyClusters(t *testing.T) {
 	results, errTracker := queryAllClusters[string](context.Background(), nil, nil)
 	assert.Empty(t, results)
-	assert.Empty(t, errTracker.errors)
+	if errTracker != nil {
+		assert.Empty(t, errTracker.errors)
+	} else {
+		t.Fatal("errTracker is nil")
+	}
 }
 
 func TestQueryAllClusters_Concurrency(t *testing.T) {
