@@ -22,10 +22,6 @@ import { useMissions } from '../../hooks/useMissions'
 import { loadMissionPrompt } from '../cards/multi-tenancy/missionLoader'
 import type { DeployPhase, MissionControlState, PhaseProgress, PhaseStatus } from './types'
 import { buildInstallPromptForProject, isSafeProjectName } from './useMissionControl'
-import { LazyMarkdown as ReactMarkdown } from '../ui/LazyMarkdown'
-import remarkGfm from 'remark-gfm'
-import rehypeSanitize from 'rehype-sanitize'
-import { Terminal, ChevronDown, ChevronUp } from 'lucide-react'
 
 /** Terminal statuses that indicate a project is no longer in-flight */
 const TERMINAL_STATUSES: readonly string[] = ['completed', 'failed', 'skipped', 'cancelled']
@@ -101,7 +97,6 @@ export function LaunchSequence({
   const [isStarted, setIsStarted] = useState(false)
   const progressRef = useRef<PhaseProgress[]>(state.launchProgress)
   const startedMissions = useRef(new Set<string>())
-  const [expandedMissionId, setExpandedMissionId] = useState<string | null>(null)
   // #6632 — Track mount state so effects scheduled before unmount (phase
   // initialization, mission monitor, auto-start) can't call onUpdateProgress
   // or onComplete on a closed dialog. Without this, closing Mission Control
@@ -591,7 +586,6 @@ export function LaunchSequence({
               <div className="space-y-1 ml-7">
                 <AnimatePresence>
                   {phase.projects.map((proj) => (
-                    <>
                     <motion.div
                       key={proj.name}
                       initial={{ opacity: 0, x: -10 }}
@@ -615,29 +609,8 @@ export function LaunchSequence({
                           {proj.error}
                         </span>
                       )}
-                      {proj.missionId && (
-                        <button
-                          onClick={() => setExpandedMissionId(expandedMissionId === proj.missionId ? null : proj.missionId!)}
-                          className={cn(
-                            'p-1 rounded-md transition-colors',
-                            expandedMissionId === proj.missionId ? 'bg-primary/20 text-primary' : 'hover:bg-secondary text-muted-foreground'
-                          )}
-                          title="Show execution logs"
-                          data-testid={`show-logs-${proj.name}`}
-                        >
-                          <Terminal className="w-3.5 h-3.5" />
-                        </button>
-                      )}
                     </motion.div>
-                    {expandedMissionId === proj.missionId && proj.missionId && (
-                      <MissionExecutionTerminal
-                        key={`terminal-${proj.missionId}`}
-                        missionId={proj.missionId}
-                        missions={missions}
-                      />
-                    )}
-                  </>
-                ))}
+                  ))}
                 </AnimatePresence>
               </div>
             </motion.div>
@@ -658,77 +631,5 @@ export function LaunchSequence({
         </motion.div>
       )}
     </div>
-  )
-}
-
-/**
- * Simplified terminal-like view for mission execution logs.
- * Shows assistant messages as they stream in.
- */
-function MissionExecutionTerminal({ missionId, missions }: { missionId: string, missions: import('../../hooks/useMissions').Mission[] }) {
-  const mission = missions.find(m => m.id === missionId)
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Auto-scroll to bottom as logs arrive
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [mission?.messages.length, mission?.status])
-
-  if (!mission) return null
-
-  const assistantMessages = (mission.messages || []).filter(m => m.role === 'assistant' || m.role === 'system')
-
-  return (
-    <motion.div
-      initial={{ height: 0, opacity: 0 }}
-      animate={{ height: 'auto', opacity: 1 }}
-      exit={{ height: 0, opacity: 0 }}
-      className="ml-7 mt-1 mb-3 rounded-lg bg-black/40 border border-border/50 overflow-hidden"
-    >
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-secondary/20">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Live Execution Logs</span>
-        </div>
-        <div className="text-[10px] font-mono text-muted-foreground/50">
-          ID: {missionId.slice(0, 8)}
-        </div>
-      </div>
-      <div
-        ref={scrollRef}
-        className="p-3 max-h-60 overflow-y-auto font-mono text-[11px] leading-relaxed space-y-3"
-      >
-        {assistantMessages.length === 0 && (
-          <div className="text-muted-foreground/40 italic">Waiting for agent to initialize...</div>
-        )}
-        {assistantMessages.map((msg, i) => (
-          <div key={msg.id} className={cn(
-            "space-y-1",
-            msg.role === 'system' ? "text-amber-400/80" : "text-emerald-400/90"
-          )}>
-            <div className="flex items-center gap-2 opacity-50">
-              <span className="text-[9px] uppercase">[{msg.role}]</span>
-              <span className="text-[9px]">{new Date(msg.timestamp).toLocaleTimeString()}</span>
-            </div>
-            <div className="prose prose-invert prose-xs max-w-none [&_pre]:bg-black/50 [&_pre]:border-border/20">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeSanitize]}
-              >
-                {msg.content}
-              </ReactMarkdown>
-            </div>
-          </div>
-        ))}
-        {mission.status === 'running' && (
-          <div className="flex items-center gap-2 text-amber-400/50 italic animate-pulse">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            <span>Agent is working...</span>
-          </div>
-        )}
-      </div>
-    </motion.div>
   )
 }
